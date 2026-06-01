@@ -1,0 +1,22 @@
+fastapi[standard]
+python-dotenv
+langgraph
+langchain-ollama
+langchain-openai
+# crewai
+crewai==0.80.0
+onnxruntime==1.19.2
+lancedb==0.25.3
+langchain-pinecone
+langchain-tavily
+uvicorn[standard]
+langchain-community
+sqlmodel
+python-jose[cryptography]
+passlib[bcrypt]
+python-socketio
+crewai-tools
+pypdf
+mistralai
+langchain-mistralai
+mistralai[realtime]
