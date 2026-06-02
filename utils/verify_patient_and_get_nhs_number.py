@@ -1,6 +1,7 @@
 import httpx
 import uuid
 import random
+import datetime
 from sqlmodel import Session, select
 from database import engine
 from models import Patient
@@ -9,6 +10,21 @@ from models import Patient
 # NHS Personal Demographics Service (PDS) Sandbox endpoint
 PDS_SANDBOX_URL = "https://sandbox.api.service.nhs.uk/personal-demographics/FHIR/R4/Patient"
 
+
+def _calculate_age(dob_string: str) -> int | None:
+    """
+    Calculate age from a date of birth string in YYYY-MM-DD format.
+    Returns None if the format is invalid.
+    """
+    try:
+        dob = datetime.date.fromisoformat(dob_string)
+        today = datetime.date.today()
+        # Subtract 1 if birthday hasn't happened yet this year
+        age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+        return age
+    except (ValueError, TypeError):
+        return None
+ 
 
 def _generate_unique_nhs_number() -> str:
     with Session(engine) as session:
@@ -19,12 +35,61 @@ def _generate_unique_nhs_number() -> str:
                 return candidate
 
 
-def _save_patient(name: str, nhs_number: str) -> None:
+def _save_patient(
+    name: str,
+    nhs_number: str,
+    gender: str = "",
+    date_of_birth: str = "",
+    age: int | None = None,
+) -> None:
+    """
+    Save a patient to the database with all demographic fields.
+    If a patient with the same NHS number already exists, update any missing fields.
+    Also checks for duplicate patients by name + gender + DOB to prevent double registration.
+    """
     with Session(engine) as session:
-        exists = session.exec(select(Patient).where(Patient.nhs_number == nhs_number)).first()
-        if not exists:
-            session.add(Patient(name=name, nhs_number=nhs_number))
+        # Check if a patient with this NHS number already exists
+        existing_by_nhs = session.exec(
+            select(Patient).where(Patient.nhs_number == nhs_number)
+        ).first()
+
+        if existing_by_nhs:
+            # Update any missing demographic fields on the existing record
+            if gender and not existing_by_nhs.gender:
+                existing_by_nhs.gender = gender
+            if date_of_birth and not existing_by_nhs.date_of_birth:
+                existing_by_nhs.date_of_birth = date_of_birth
+            if age is not None and existing_by_nhs.age is None:
+                existing_by_nhs.age = age
+            session.add(existing_by_nhs)
             session.commit()
+            return
+
+        # Check for duplicate patient by name + gender + date_of_birth
+        # This prevents the same person from being registered twice with a different NHS number
+        if name and gender and date_of_birth:
+            duplicate = session.exec(
+                select(Patient).where(
+                    Patient.name == name,
+                    Patient.gender == gender,
+                    Patient.date_of_birth == date_of_birth,
+                )
+            ).first()
+
+            if duplicate:
+                # Patient already exists with same demographics — skip creation
+                return
+
+        # Create a new patient with all demographic fields
+        new_patient = Patient(
+            name=name,
+            nhs_number=nhs_number,
+            gender=gender if gender else None,
+            date_of_birth=date_of_birth if date_of_birth else None,
+            age=age,
+        )
+        session.add(new_patient)
+        session.commit()
 
 
 async def verify_patient_and_get_nhs_number(
@@ -53,6 +118,10 @@ async def verify_patient_and_get_nhs_number(
 
     print(f"[PDS] Verifying patient: {given_name} {family_name}, DOB={dob}, Postcode={postcode}")
 
+    # Calculate age from date of birth
+    calculated_age = _calculate_age(dob)
+    full_name = f"{given_name} {family_name}"
+
     # Strategy 1: Search with postcode (real-world approach)
     result = await _search_pds(
         family=family_name,
@@ -62,7 +131,7 @@ async def verify_patient_and_get_nhs_number(
     )
 
     if result is not None:
-        _save_patient(f"{given_name} {family_name}", result)
+        _save_patient(full_name, result, gender=gender, date_of_birth=dob, age=calculated_age)
         return result
 
     # Strategy 2: Sandbox fallback — try with gender instead of postcode
@@ -75,12 +144,12 @@ async def verify_patient_and_get_nhs_number(
             extra_params={"gender": gender.lower()},
         )
         if result is not None:
-            _save_patient(f"{given_name} {family_name}", result)
+            _save_patient(full_name, result, gender=gender, date_of_birth=dob, age=calculated_age)
             return result
 
     print("[PDS] No match found — generating a local NHS number.")
     nhs_number = _generate_unique_nhs_number()
-    _save_patient(f"{given_name} {family_name}", nhs_number)
+    _save_patient(full_name, nhs_number, gender=gender, date_of_birth=dob, age=calculated_age)
     print(f"[PDS] Generated NHS Number: {nhs_number}")
     return nhs_number
 

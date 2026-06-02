@@ -65,6 +65,8 @@ def create_booking(request: BookingRequest, session: Session = Depends(get_sessi
         patient_phone=request.patient_phone,
         patient_email=request.patient_email,
         symptoms=request.symptoms,
+        appointment_date=slot.date,
+        appointment_time=slot.time,
     )
     slot.is_booked = True
     session.add(booking)

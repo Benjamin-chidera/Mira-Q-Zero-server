@@ -3,10 +3,20 @@ import io
 import base64
 import asyncio
 import socketio
+from dotenv import load_dotenv
 from mistralai.client import Mistral
 
+# Ensure .env is loaded before reading environment variables.
+# socket_setup.py is imported in main.py before load_dotenv() runs there,
+# so we must call it here to guarantee MISTRAL_API_KEY is available.
+load_dotenv()
+
 # Initialize the Socket.IO async server with ASGI mode and CORS enabled for all origins
-sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
+sio = socketio.AsyncServer(
+    async_mode='asgi',
+    cors_allowed_origins='*',
+    max_http_buffer_size=20 * 1024 * 1024,  # 20MB — default 1MB causes drops for long recordings
+)
 
 # Initialize Mistral client using the environment variable key
 client = Mistral(api_key=os.getenv("MISTRAL_API_KEY"))
@@ -122,23 +132,42 @@ async def handle_stt(sid, data):
         if not audio_bytes:
             return {"error": "Missing 'audio' data"}
 
+        # Log the request details for debugging
+        print(f"[Socket.IO] STT request from {sid}: file={file_name}, size={len(audio_bytes)} bytes")
+        
+        # Check that the API key is loaded
+        api_key = os.getenv("MISTRAL_API_KEY")
+        if not api_key:
+            print("[Socket.IO] ERROR: MISTRAL_API_KEY is not set!")
+            return {"error": "MISTRAL_API_KEY is not configured"}
+
         loop = asyncio.get_event_loop()
         content_type = "audio/wav" if file_name.endswith(".wav") else "audio/webm"
         
-        # Invoke transcription model in the thread executor
-        result = await loop.run_in_executor(
-            None,
-            lambda: client.audio.transcriptions.complete(
-                model=STT_MODEL,
-                file={
-                    "file_name": file_name,
-                    "content": audio_bytes,
-                    "content_type": content_type,
-                },
-            )
+        # Invoke transcription model with a 30-second timeout to prevent indefinite hangs
+        result = await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                lambda: client.audio.transcriptions.complete(
+                    model=STT_MODEL,
+                    file={
+                        "file_name": file_name,
+                        "content": audio_bytes,
+                        "content_type": content_type,
+                    },
+                ),
+            ),
+            timeout=30.0,
         )
         
-        return {"text": result.text if result and result.text else ""}
+        transcribed_text = result.text if result and result.text else ""
+        print(f"[Socket.IO] STT result: '{transcribed_text[:100]}'")
+        return {"text": transcribed_text}
+
+    except asyncio.TimeoutError:
+        print(f"[Socket.IO] STT Timeout: Mistral API took longer than 30 seconds")
+        return {"error": "STT request timed out. Please try again."}
     except Exception as e:
         print(f"[Socket.IO] STT Error: {e}")
         return {"error": f"Failed to generate STT: {str(e)}"}
+

@@ -5,7 +5,7 @@ from typing import Optional
 
 
 class User(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int = Field(default=None, primary_key=True)
     email: str = Field(unique=True, index=True)
     password_hash: Optional[str] = Field(default=None)
     name: str
@@ -15,62 +15,16 @@ class User(SQLModel, table=True):
 
 
 class Patient(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int = Field(default=None, primary_key=True)
     name: str
     nhs_number: str = Field(unique=True, index=True)
     gender: Optional[str] = Field(default=None)
     date_of_birth: Optional[str] = Field(default=None)
-    age: Optional[int] = Field(default=None)
+    age: int = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
-
-
-class Allergy(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    patient_id: int = Field(foreign_key="patient.id", index=True)
-    substance: str
-    criticality: Optional[str] = Field(default=None)  # e.g. "high", "low", "unable-to-assess"
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
-
-class Medication(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    patient_id: int = Field(foreign_key="patient.id", index=True)
-    drug_name: str
-    dosage: Optional[str] = Field(default=None)
-    frequency: Optional[str] = Field(default=None)
-    status: str = Field(default="Active")  # e.g. "Active", "Stopped", "Completed"
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
-
-class OperativeNote(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    patient_id: int = Field(foreign_key="patient.id", index=True)
-    procedure_name: str
-    pre_op_diagnosis: Optional[str] = Field(default=None)
-    narrative_text: Optional[str] = Field(default=None)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
-
-class PACSImaging(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    patient_id: int = Field(foreign_key="patient.id", index=True)
-    modality: str  # e.g. "CT", "XRAY", "MRI", "ULTRASOUND"
-    image_path: Optional[str] = Field(default=None)  # path to .jpg file
-    radiologist_report: Optional[str] = Field(default=None)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
-
-class PatientDocument(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    patient_id: int = Field(foreign_key="patient.id", index=True)
-    file_type: str  # e.g. "pdf", "docx", "png"
-    title: str
-    file: Optional[bytes] = Field(default=None, sa_type=LargeBinary)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
 
 class GPSlot(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int = Field(default=None, primary_key=True)
     gp_ods_code: str = Field(index=True)
     practitioner_name: str
     date: str
@@ -78,9 +32,8 @@ class GPSlot(SQLModel, table=True):
     is_booked: bool = Field(default=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-
 class Booking(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int = Field(default=None, primary_key=True)
     reference_number: str = Field(unique=True, index=True)
     gp_ods_code: str
     patient_nhs_number: str
@@ -89,4 +42,79 @@ class Booking(SQLModel, table=True):
     patient_phone: Optional[str] = Field(default=None)
     patient_email: Optional[str] = Field(default=None)
     symptoms: Optional[str] = Field(default=None)
+    appointment_date: Optional[str] = Field(default=None)
+    appointment_time: Optional[str] = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+# Patient Documents (discharge summaries, clinical letters, etc.)   
+class PatientDocument(SQLModel, table=True):
+    id: int = Field(default=None, primary_key=True)
+    patient_id: int = Field(foreign_key="patient.id", index=True)
+    title: str 
+    content: str = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+# Document Amendments (updates, corrections, or annotations added to documents after their initial creation.)
+class DocumentAmendment(SQLModel, table=True):
+    id: int = Field(default=None, primary_key=True)
+    patient_id: int = Field(foreign_key="patient.id", index=True)
+    document_id: int = Field(foreign_key="patientdocument.id", index=True)
+    amendment_text: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+# PACS Imaging (X-rays, CT scans, MRIs, etc)
+class PACSImaging(SQLModel, table=True):
+    id: int = Field(default=None, primary_key=True)
+    accession_number: str = Field(unique=True, index=True)
+    patient_id: int = Field(foreign_key="patient.id", index=True)
+    modality: str  # e.g. "CT", "XRAY", "MRI", "ULTRASOUND"
+    body_site: str = Field(default=None) # e.g. "Chest", "Head", "Abdomen"
+    reason_for_scan: str = Field(default=None)
+    image_path: str = Field(default=None)  # path to .jpg file
+    radiologist_report: str = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+# Operative Notes (surgical treatments)
+class OperativeNote(SQLModel, table=True):
+    id: int = Field(default=None, primary_key=True)
+    patient_id: int = Field(foreign_key="patient.id", index=True)
+    procedure_name: str
+    procedure_performed: str
+    pre_op_diagnosis: str = Field(default=None)
+    post_op_diagnosis: str = Field(default=None)
+    narrative_text: str = Field(default=None)
+    post_op_instructions: str = Field(default=None) 
+    surgeon_name: str = Field(default=None)
+    surgery_date: str = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class ClinicalNotes(SQLModel, table=True):
+    id: int = Field(default=None, primary_key=True)
+    patient_id: int = Field(foreign_key="patient.id", index=True)
+    content: str
+    author: str  ## Author can be a GP or any healthcare practitioner   
+    author_role: str = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class Allergy(SQLModel, table=True):
+    id: int = Field(default=None, primary_key=True)
+    patient_id: int = Field(foreign_key="patient.id", index=True)
+    substance: str
+    criticality: str = Field(default=None)  # e.g. "high", "low", "unable-to-assess"
+    reaction: str = Field(default=None)  # e.g. "rash", "anaphylaxis", "nausea"
+    status: str = Field(default="Active")  # e.g. "Active", "Inactive"  
+    updated_by: str = Field(default=None)
+    status_reason: str = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Medication(SQLModel, table=True):
+    id: int = Field(default=None, primary_key=True)
+    patient_id: int = Field(foreign_key="patient.id", index=True)
+    drug_name: str
+    dosage: str = Field(default=None)
+    frequency: str = Field(default=None)
+    updated_by: str = Field(default=None)
+    status_reason: str = Field(default=None)
+    status: str = Field(default="Active")  # e.g. "Active", "Stopped", "Completed"
     created_at: datetime = Field(default_factory=datetime.utcnow)

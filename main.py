@@ -11,8 +11,14 @@ from utils.jwt_handler import hash_password
 from routes.gps import router as gps_router
 from routes.consultation import router as consultation_router
 from routes.auth import router as auth_router
-from routes.medTech.patients import router as patients_router
-from routes.medTech.clinical import router as clinical_router
+from routes.mira.patients import router as patients_router
+from routes.mira.clinical import router as clinical_router
+from routes.mira.patient_documents import router as patient_documents_router
+from routes.mira.pacs_imaging import router as pacs_imaging_router
+from routes.mira.operative_notes import router as operative_notes_router
+from routes.mira.clinical_notes import router as clinical_notes_router
+from routes.mira.medication import router as medication_router
+from routes.mira.allergy import router as allergy_router
 from routes.bookings import router as bookings_router
 from routes.tts import router as tts_router
 import socketio
@@ -67,9 +73,15 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(gps_router)
-app.include_router(consultation_router)
+app.include_router(consultation_router) 
 app.include_router(patients_router)
 app.include_router(clinical_router)
+app.include_router(patient_documents_router)
+app.include_router(pacs_imaging_router)
+app.include_router(operative_notes_router)
+app.include_router(clinical_notes_router)
+app.include_router(medication_router)
+app.include_router(allergy_router)
 app.include_router(bookings_router, prefix="/api")
 app.include_router(tts_router, prefix="/api")
 
