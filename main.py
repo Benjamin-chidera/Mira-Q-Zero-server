@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 
 from database import create_db_and_tables, engine
 from models import User
+from utils.mira.ai_research_models import ResearchConversation, ResearchMessage
 from utils.jwt_handler import hash_password
 from routes.gps import router as gps_router
 from routes.consultation import router as consultation_router
@@ -21,6 +22,7 @@ from routes.mira.medication import router as medication_router
 from routes.mira.allergy import router as allergy_router
 from routes.bookings import router as bookings_router
 from routes.tts import router as tts_router
+from routes.mira.ai_research import router as ai_research_router
 import socketio
 from socket_setup import sio
 
@@ -48,15 +50,54 @@ def seed_default_admin():
             print(f"[Seed] Admin already exists: {admin_email}")
 
 
+def seed_default_doctors():
+    doctors_data = [
+        {"email": "benjaminchidera72@gmail.com", "name": "Benjamin Chidera", "password": "Standout070801?"},
+        {"email": "house@gpconnect.nhs.uk", "name": "Gregory House", "password": "Password123!"},
+        {"email": "grey@gpconnect.nhs.uk", "name": "Meredith Grey", "password": "Password123!"},
+        {"email": "quinn@gpconnect.nhs.uk", "name": "Michaela Quinn", "password": "Password123!"},
+        {"email": "mccoy@gpconnect.nhs.uk", "name": "Leonard McCoy", "password": "Password123!"},
+    ]
+    with Session(engine) as session:
+        # Clear existing practitioners to start fresh
+        existing_practitioners = session.exec(select(User).where(User.role == "practitioner")).all()
+        for p in existing_practitioners:
+            session.delete(p)
+        session.commit()
+
+        for doc in doctors_data:
+            practitioner = User(
+                email=doc["email"],
+                password_hash=hash_password(doc["password"]),
+                name=doc["name"],
+                role="practitioner",
+            )
+            session.add(practitioner)
+        session.commit()
+        print("[Seed] 5 practitioners seeded successfully.")
+
+
 @asynccontextmanager 
 async def lifespan(app: FastAPI):
     create_db_and_tables()
+    
+    # Run auto-migration for doctor_id column
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        try:
+            conn.execute(text("ALTER TABLE patient ADD COLUMN doctor_id INTEGER"))
+            print("[Migration] Added doctor_id to patient table.")
+        except Exception as e:
+            # Column likely already exists
+            pass
+            
     seed_default_admin()
+    seed_default_doctors()
     yield
 
 
 app = FastAPI(lifespan=lifespan)
-
+ 
 allowed_origins = [
     o.strip()
     for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
@@ -66,24 +107,37 @@ allowed_origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+):\d+",
     allow_credentials=True,   # required for HttpOnly cookie to be sent cross-origin
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(auth_router)
-app.include_router(gps_router)
-app.include_router(consultation_router) 
-app.include_router(patients_router)
-app.include_router(clinical_router)
-app.include_router(patient_documents_router)
-app.include_router(pacs_imaging_router)
-app.include_router(operative_notes_router)
-app.include_router(clinical_notes_router)
-app.include_router(medication_router)
-app.include_router(allergy_router)
-app.include_router(bookings_router, prefix="/api")
-app.include_router(tts_router, prefix="/api")
+# Register routers both with and without /api prefix to support all client configurations
+routers = [
+    (auth_router, ""),
+    (gps_router, ""),
+    (consultation_router, ""),
+    (patients_router, ""),
+    (clinical_router, ""),
+    (patient_documents_router, ""),
+    (pacs_imaging_router, ""),
+    (operative_notes_router, ""),
+    (clinical_notes_router, ""),
+    (medication_router, ""),
+    (allergy_router, ""),
+    (bookings_router, "/api"),
+    (tts_router, "/api"),
+    (ai_research_router, ""),
+]
+
+for r, default_prefix in routers:
+    if default_prefix == "/api":
+        app.include_router(r, prefix="/api")
+        app.include_router(r)
+    else:
+        app.include_router(r)
+        app.include_router(r, prefix="/api")
 
 # Wrap the FastAPI app with the Socket.IO ASGIApp to share the port and host
 app = socketio.ASGIApp(sio, other_asgi_app=app)

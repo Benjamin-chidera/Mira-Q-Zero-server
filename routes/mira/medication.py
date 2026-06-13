@@ -33,7 +33,8 @@ async def create_medication(
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
-    # Set creation timestamp and save
+    # Ensure the database auto-generates the ID (ignore any client-sent ID)
+    medication.id = None
     medication.created_at = datetime.utcnow()
     session.add(medication)
     session.commit()

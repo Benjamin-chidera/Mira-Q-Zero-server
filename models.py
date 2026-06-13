@@ -5,7 +5,7 @@ from typing import Optional
 
 
 class User(SQLModel, table=True):
-    id: int = Field(default=None, primary_key=True)
+    id: Optional[int] = Field(default=None, primary_key=True)
     email: str = Field(unique=True, index=True)
     password_hash: Optional[str] = Field(default=None)
     name: str
@@ -15,16 +15,17 @@ class User(SQLModel, table=True):
 
 
 class Patient(SQLModel, table=True):
-    id: int = Field(default=None, primary_key=True)
+    id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     nhs_number: str = Field(unique=True, index=True)
     gender: Optional[str] = Field(default=None)
     date_of_birth: Optional[str] = Field(default=None)
     age: int = Field(default=None)
+    doctor_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class GPSlot(SQLModel, table=True):
-    id: int = Field(default=None, primary_key=True)
+    id: Optional[int] = Field(default=None, primary_key=True)
     gp_ods_code: str = Field(index=True)
     practitioner_name: str
     date: str
@@ -33,7 +34,7 @@ class GPSlot(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class Booking(SQLModel, table=True):
-    id: int = Field(default=None, primary_key=True)
+    id: Optional[int] = Field(default=None, primary_key=True)
     reference_number: str = Field(unique=True, index=True)
     gp_ods_code: str
     patient_nhs_number: str
@@ -48,7 +49,7 @@ class Booking(SQLModel, table=True):
 
 # Patient Documents (discharge summaries, clinical letters, etc.)   
 class PatientDocument(SQLModel, table=True):
-    id: int = Field(default=None, primary_key=True)
+    id: Optional[int] = Field(default=None, primary_key=True)
     patient_id: int = Field(foreign_key="patient.id", index=True)
     title: str 
     content: str = Field(default=None)
@@ -56,7 +57,7 @@ class PatientDocument(SQLModel, table=True):
 
 # Document Amendments (updates, corrections, or annotations added to documents after their initial creation.)
 class DocumentAmendment(SQLModel, table=True):
-    id: int = Field(default=None, primary_key=True)
+    id: Optional[int] = Field(default=None, primary_key=True)
     patient_id: int = Field(foreign_key="patient.id", index=True)
     document_id: int = Field(foreign_key="patientdocument.id", index=True)
     amendment_text: str
@@ -64,7 +65,7 @@ class DocumentAmendment(SQLModel, table=True):
 
 # PACS Imaging (X-rays, CT scans, MRIs, etc)
 class PACSImaging(SQLModel, table=True):
-    id: int = Field(default=None, primary_key=True)
+    id: Optional[int] = Field(default=None, primary_key=True)
     accession_number: str = Field(unique=True, index=True)
     patient_id: int = Field(foreign_key="patient.id", index=True)
     modality: str  # e.g. "CT", "XRAY", "MRI", "ULTRASOUND"
@@ -76,7 +77,7 @@ class PACSImaging(SQLModel, table=True):
 
 # Operative Notes (surgical treatments)
 class OperativeNote(SQLModel, table=True):
-    id: int = Field(default=None, primary_key=True)
+    id: Optional[int] = Field(default=None, primary_key=True)
     patient_id: int = Field(foreign_key="patient.id", index=True)
     procedure_name: str
     procedure_performed: str
@@ -89,7 +90,7 @@ class OperativeNote(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class ClinicalNotes(SQLModel, table=True):
-    id: int = Field(default=None, primary_key=True)
+    id: Optional[int] = Field(default=None, primary_key=True)
     patient_id: int = Field(foreign_key="patient.id", index=True)
     content: str
     author: str  ## Author can be a GP or any healthcare practitioner   
@@ -97,7 +98,7 @@ class ClinicalNotes(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class Allergy(SQLModel, table=True):
-    id: int = Field(default=None, primary_key=True)
+    id: Optional[int] = Field(default=None, primary_key=True)
     patient_id: int = Field(foreign_key="patient.id", index=True)
     substance: str
     criticality: str = Field(default=None)  # e.g. "high", "low", "unable-to-assess"
@@ -109,7 +110,7 @@ class Allergy(SQLModel, table=True):
 
 
 class Medication(SQLModel, table=True):
-    id: int = Field(default=None, primary_key=True)
+    id: Optional[int] = Field(default=None, primary_key=True)
     patient_id: int = Field(foreign_key="patient.id", index=True)
     drug_name: str
     dosage: str = Field(default=None)

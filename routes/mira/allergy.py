@@ -33,7 +33,8 @@ async def create_allergy(
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
-    # Set creation timestamp and save
+    # Ensure the database auto-generates the ID (ignore any client-sent ID)
+    allergy.id = None
     allergy.created_at = datetime.utcnow()
     session.add(allergy)
     session.commit()

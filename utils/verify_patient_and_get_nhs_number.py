@@ -35,6 +35,24 @@ def _generate_unique_nhs_number() -> str:
                 return candidate
 
 
+def _get_doctor_with_least_patients(session: Session) -> int | None:
+    from models import User
+    doctors = session.exec(select(User).where(User.role == "practitioner")).all()
+    if not doctors:
+        return None
+        
+    min_patients = float("inf")
+    selected_doctor_id = None
+    
+    for doc in doctors:
+        count = len(session.exec(select(Patient).where(Patient.doctor_id == doc.id)).all())
+        if count < min_patients:
+            min_patients = count
+            selected_doctor_id = doc.id
+            
+    return selected_doctor_id
+
+
 def _save_patient(
     name: str,
     nhs_number: str,
@@ -61,6 +79,9 @@ def _save_patient(
                 existing_by_nhs.date_of_birth = date_of_birth
             if age is not None and existing_by_nhs.age is None:
                 existing_by_nhs.age = age
+            # Assign doctor if missing
+            if not existing_by_nhs.doctor_id:
+                existing_by_nhs.doctor_id = _get_doctor_with_least_patients(session)
             session.add(existing_by_nhs)
             session.commit()
             return
@@ -81,12 +102,14 @@ def _save_patient(
                 return
 
         # Create a new patient with all demographic fields
+        doctor_id = _get_doctor_with_least_patients(session)
         new_patient = Patient(
             name=name,
             nhs_number=nhs_number,
             gender=gender if gender else None,
             date_of_birth=date_of_birth if date_of_birth else None,
             age=age,
+            doctor_id=doctor_id,
         )
         session.add(new_patient)
         session.commit()

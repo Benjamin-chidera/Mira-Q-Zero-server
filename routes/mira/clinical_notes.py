@@ -32,7 +32,8 @@ async def create_clinical_note(
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
-    # Set creation timestamp and save record
+    # Ensure the database auto-generates the ID (ignore any client-sent ID)
+    note.id = None
     note.created_at = datetime.utcnow()
     session.add(note)
     session.commit()

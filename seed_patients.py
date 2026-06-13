@@ -3,7 +3,7 @@ import datetime
 from sqlalchemy import text
 from sqlmodel import Session, select
 from database import engine, create_db_and_tables
-from models import Patient
+from models import Patient, User
 
 
 def run_migrations():
@@ -91,47 +91,62 @@ def generate_random_patients(num=10):
     return patients
 
 
+from main import seed_default_admin, seed_default_doctors
+
+
 def seed_db():
-    """Clear the patient table, then seed 10 unique random patients."""
+    """Clear the patient table, then seed patients distributed across doctors."""
     create_db_and_tables()
     run_migrations()
+
+    # Ensure admin and practitioners are seeded first
+    seed_default_admin()
+    seed_default_doctors()
 
     # Clear the table first
     clear_patient_table()
 
-    # Generate 10 random patients
-    patients = generate_random_patients(10)
+    # Generate 9 random patients (we explicitly add 1 specific patient first, making 10 total)
+    patients = generate_random_patients(9)
 
     with Session(engine) as session:
+        # Fetch all practitioners
+        doctors = session.exec(select(User).where(User.role == "practitioner")).all()
+        if not doctors:
+            print("No doctors found in the database. Please run the server lifespan first to seed doctors.")
+            return
+
+        # Find Benjamin Chidera
+        benjamin = next((d for d in doctors if d.email == "benjaminchidera72@gmail.com"), None)
+        if not benjamin:
+            print("Benjamin Chidera not found. Assigning to the first available doctor.")
+            benjamin = doctors[0]
+
+        # Seed Benjamin Chidera Benjamin explicitly
+        dob_string = "1995-10-22"
+        calculated_age = 30
+        benjamin_patient = Patient(
+            name="Benjamin Chidera Benjamin",
+            gender="Male",
+            date_of_birth=dob_string,
+            age=calculated_age,
+            nhs_number="9399227418",
+            doctor_id=benjamin.id,
+        )
+        session.add(benjamin_patient)
+        print(f"Added patient 'Benjamin Chidera Benjamin' assigned to {benjamin.name}.")
+
+        # Distribute the other 9 patients round-robin among ALL 5 doctors
         added_count = 0
-        for patient in patients:
-            # Double-check: no duplicate NHS number in the database
-            existing_by_nhs = session.exec(
-                select(Patient).where(Patient.nhs_number == patient.nhs_number)
-            ).first()
-
-            if existing_by_nhs:
-                print(f"Skipping {patient.name} — NHS number {patient.nhs_number} already exists.")
-                continue
-
-            # Double-check: no duplicate by name + gender + date_of_birth
-            existing_by_demographics = session.exec(
-                select(Patient).where(
-                    Patient.name == patient.name,
-                    Patient.gender == patient.gender,
-                    Patient.date_of_birth == patient.date_of_birth,
-                )
-            ).first()
-
-            if existing_by_demographics:
-                print(f"Skipping {patient.name} — duplicate demographics found.")
-                continue
-
-            session.add(patient)
+        for p in patients:
+            # We cycle through all doctors
+            assigned_doc = doctors[added_count % len(doctors)]
+            p.doctor_id = assigned_doc.id
+            session.add(p)
             added_count += 1
 
         session.commit()
-        print(f"Successfully added {added_count} random patients to the database.")
+        print(f"Successfully seeded {added_count + 1} patients in the database.")
 
 
 if __name__ == "__main__":

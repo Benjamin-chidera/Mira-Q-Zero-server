@@ -2,7 +2,7 @@ import os
 import re
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlmodel import Session, select
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from models import User
 from database import get_session
 from utils.jwt_handler import (
@@ -23,9 +23,19 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 # ── Request / Response schemas ────────────────────────────────────────────────
 
-class CheckEmailRequest(BaseModel):
+class EmailRequestBase(BaseModel):
     email: str
 
+    @model_validator(mode="before")
+    @classmethod
+    def allow_corporate_email(cls, data):
+        if isinstance(data, dict):
+            if "corporate_email" in data and "email" not in data:
+                data["email"] = data["corporate_email"]
+        return data
+
+
+class CheckEmailRequest(EmailRequestBase):
     @field_validator("email")
     @classmethod
     def validate_email(cls, v: str) -> str:
@@ -41,8 +51,7 @@ class CheckEmailResponse(BaseModel):
     has_password: bool = False
 
 
-class SetPasswordRequest(BaseModel):
-    email: str
+class SetPasswordRequest(EmailRequestBase):
     password: str
 
     @field_validator("email")
@@ -62,8 +71,7 @@ class SetPasswordRequest(BaseModel):
 
 
 
-class LoginRequest(BaseModel):
-    email: str
+class LoginRequest(EmailRequestBase):
     password: str
 
     @field_validator("email")
@@ -82,8 +90,7 @@ class LoginRequest(BaseModel):
         return v
 
 
-class RegisterRequest(BaseModel):
-    email: str
+class RegisterRequest(EmailRequestBase):
     name: str
     role: str = "practitioner"
 

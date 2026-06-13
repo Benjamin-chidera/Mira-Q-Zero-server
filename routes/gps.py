@@ -43,7 +43,7 @@ async def get_nearby_gps(
 
     if "entry" in englishGps:
         # Use local datetime to avoid UTC date mismatch/rollover issues
-        today = datetime.now()
+        today = datetime.now() 
         s_date = startDate if startDate else today.strftime("%Y-%m-%d")
         e_date = endDate if endDate else (today + timedelta(days=7)).strftime("%Y-%m-%d")
         s_time = startTime if startTime else "09:00"

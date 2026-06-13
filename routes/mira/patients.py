@@ -16,24 +16,39 @@ headers = {
 }   
 
 from database import get_session
-from models import Patient, Booking
+from models import Patient, Booking, User
 from sqlmodel import select
 from fastapi import Depends
 from sqlmodel import Session
 
 @router.get("/")
-async def get_practice_patients(ods_code: str = "B82617", session: Session = Depends(get_session)):
+async def get_practice_patients(
+    ods_code: str = "B82617",
+    doctor_id: int | None = None,
+    session: Session = Depends(get_session)
+):
     # In dev, we don't 'search' PDS. We fetch our known patients.
     patients = []
     
     # 1. Fetch from local Database
-    db_patients = session.exec(select(Patient)).all()
+    if doctor_id is not None:
+        db_patients = session.exec(select(Patient).where(Patient.doctor_id == doctor_id)).all()
+    else:
+        db_patients = session.exec(select(Patient)).all()
+        
     seen_nhs_numbers = set()
     for p in db_patients:
         # Find bookings for this patient by matching on patient_name
         patient_bookings = session.exec(
             select(Booking).where(Booking.patient_name == p.name)
         ).all()
+
+        # Resolve doctor name
+        doctor_name = "Not assigned"
+        if p.doctor_id:
+            doctor = session.get(User, p.doctor_id)
+            if doctor:
+                doctor_name = doctor.name
 
         patients.append({
             "id": p.id,
@@ -43,7 +58,8 @@ async def get_practice_patients(ods_code: str = "B82617", session: Session = Dep
             "gender": p.gender,
             "dateOfBirth": p.date_of_birth,
             "status": "Review",
-            "reason": patient_bookings[0].symptoms if patient_bookings else "Not set yet"
+            "reason": patient_bookings[0].symptoms if patient_bookings else "Not set yet",
+            "doctorName": doctor_name
         })
         seen_nhs_numbers.add(p.nhs_number)
         

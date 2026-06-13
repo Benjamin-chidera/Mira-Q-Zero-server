@@ -30,6 +30,8 @@ async def create_document(
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
+    # Ensure the database auto-generates the ID (ignore any client-sent ID)
+    document.id = None
     document.created_at = datetime.utcnow()
     session.add(document)
     session.commit()
@@ -105,7 +107,8 @@ async def create_amendment(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # Set the IDs from the path params so they match
+    # Ensure the database auto-generates the ID (ignore any client-sent ID)
+    amendment.id = None
     amendment.patient_id = patient_id
     amendment.document_id = document_id
     amendment.created_at = datetime.utcnow()
