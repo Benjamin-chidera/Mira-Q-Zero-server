@@ -25,6 +25,7 @@ services:
       - acme:/etc/acme.sh
     environment:
       - DEFAULT_EMAIL=admin@gpconnect.nhs.uk
+      - NGINX_PROXY_CONTAINER=gp-connect-nginx-proxy
     depends_on:
       - nginx-proxy
     restart: always
