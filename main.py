@@ -109,6 +109,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+@app.get("/")
+def root():
+    return {"message": "Welcome to GP Connect"}
  
 allowed_origins = [
     o.strip()
