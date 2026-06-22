@@ -35,14 +35,12 @@ jobs:
         with:
           version: "latest"
           enable-cache: true
-          cache-dependency-glob: "server/uv.lock"
+          cache-dependency-glob: "uv.lock"
 
       - name: Sync Dependencies
-        working-directory: server
         run: uv sync --frozen
 
       - name: Run Tests
-        working-directory: server
         env:
           REDIS_URL: redis://localhost:6379/0
           TESTING: "True"
