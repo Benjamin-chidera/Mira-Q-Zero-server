@@ -5,6 +5,16 @@ from sqlmodel import SQLModel, create_engine, Session
 # Set testing environment variable
 os.environ["TESTING"] = "True"
 
+# Set dummy environment variables for external APIs to avoid validation errors during import/collection
+if not os.environ.get("TAVILY_API_KEY"):
+    os.environ["TAVILY_API_KEY"] = "mock_tavily_api_key_for_testing"
+if not os.environ.get("NVIDIA_API_KEY"):
+    os.environ["NVIDIA_API_KEY"] = "mock_nvidia_api_key_for_testing"
+if not os.environ.get("NVIDIA_NIM_API_KEY"):
+    os.environ["NVIDIA_NIM_API_KEY"] = "mock_nvidia_nim_api_key_for_testing"
+if not os.environ.get("JWT_SECRET"):
+    os.environ["JWT_SECRET"] = "mock_jwt_secret_for_testing"
+
 TEST_DB_FILE = "./test_gp_connect.db"
 TEST_DATABASE_URL = f"sqlite:///{TEST_DB_FILE}"
 
