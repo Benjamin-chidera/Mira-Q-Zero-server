@@ -1,0 +1,45 @@
+name: gp-connect
+
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - /app/.venv
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite:////app/gp_connect.db
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@gpconnect.nhs.uk}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-AdminPass123!}
+      - ADMIN_NAME=${ADMIN_NAME:-System Administrator}
+      # Load all other variables from the local .env
+    env_file:
+      - .env
+    depends_on:
+      - redis
+
+  worker:
+    build: .
+    command: celery -A celery_worker.celery_app worker --loglevel=info
+    volumes:
+      - .:/app
+      - /app/.venv
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite:////app/gp_connect.db
+    env_file:
+      - .env
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - gp_connect_redis_data:/data
+
+volumes:
+  gp_connect_redis_data:

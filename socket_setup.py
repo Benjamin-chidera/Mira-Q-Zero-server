@@ -3,6 +3,7 @@ import io
 import base64
 import asyncio
 import socketio
+import redis.asyncio as async_redis
 from dotenv import load_dotenv
 from mistralai.client import Mistral
 from sqlmodel import Session, select
@@ -64,12 +65,58 @@ async def infer_gender(name: str) -> str:
         print(f"[Socket.IO] Error inferring gender: {e}")
         return "female"
 
+listener_started = False
+
+async def redis_pubsub_listener():
+    """
+    Listens to 'mira_responses' channel in Redis and forwards messages to socket clients.
+    """
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    print(f"[Socket.IO Redis Listener] Starting connection to {redis_url}...")
+    try:
+        async_redis_client = async_redis.Redis.from_url(redis_url, decode_responses=True)
+        pubsub = async_redis_client.pubsub()
+        await pubsub.subscribe("mira_responses")
+        print("[Socket.IO Redis Listener] Subscribed to channel 'mira_responses'")
+        
+        while True:
+            try:
+                # Read message with short timeout or block
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                if message and message.get("type") == "message":
+                    payload = json.loads(message["data"])
+                    sid = payload.get("sid")
+                    conversation_id = payload.get("conversation_id")
+                    
+                    if "error" in payload:
+                        print(f"[Socket.IO Redis Listener] Received error for conv={conversation_id}: {payload['error']}")
+                        await sio.emit("mira:status", {
+                            "conversation_id": conversation_id,
+                            "status": f"Research failed: {payload['error']}"
+                        }, to=sid)
+                    else:
+                        print(f"[Socket.IO Redis Listener] Forwarding research response for conv={conversation_id}")
+                        await sio.emit("mira:response", {
+                            "conversation_id": conversation_id,
+                            "role": "agent",
+                            "content": payload["response"],
+                            "sources": payload["sources"]
+                        }, to=sid)
+            except Exception as inner_e:
+                await asyncio.sleep(1)
+    except Exception as e:
+        print(f"[Socket.IO Redis Listener] Major exception: {e}")
+
 @sio.event
 async def connect(sid, environ):
     """
     Invoked when a client connects to the Socket.IO server.
     Logs connection for auditing and session tracking.
     """
+    global listener_started
+    if not listener_started:
+        listener_started = True
+        asyncio.create_task(redis_pubsub_listener())
     print(f"[Socket.IO] Client connected: {sid}")
 
 @sio.event
@@ -183,10 +230,12 @@ async def handle_stt(sid, data):
 async def handle_mira_message(sid, data):
     """
     Handles real-time chat research requests for Mira.
-    Receives text, PDFs, Images, and URLs. Routes through LangGraph + CrewAI.
+    Queues them in Celery for background processing.
     """
     try:
-        from utils.mira.ai_research import run_mira_research
+        from celery_worker import process_research_task
+        from utils.mira.ai_research import get_cache_key
+        from utils.redis_client import redis_client
         
         conversation_id = data.get("conversation_id")
         practitioner_id = data.get("practitioner_id")
@@ -198,31 +247,44 @@ async def handle_mira_message(sid, data):
 
         print(f"[Socket.IO] Mira Research request from {sid} for conversation {conversation_id}")
         
+        # Check cache first for instant delivery!
+        if redis_client:
+            try:
+                cache_key = get_cache_key(content, attachments)
+                val = redis_client.get(cache_key)
+                if val:
+                    cached_result = json.loads(val)
+                    print(f"[Socket.IO] Cache hit for query: '{content[:30]}'")
+                    
+                    # Store user message and cached agent response in sqlite database
+                    # via run_mira_research (it will also hit the cache and handle DB writing)
+                    loop = asyncio.get_event_loop()
+                    from utils.mira.ai_research import run_mira_research
+                    await loop.run_in_executor(
+                        None,
+                        lambda: run_mira_research(conversation_id, practitioner_id, content, attachments)
+                    )
+                    
+                    # Emit cached result immediately
+                    await sio.emit("mira:response", {
+                        "conversation_id": conversation_id,
+                        "role": "agent",
+                        "content": cached_result["response"],
+                        "sources": cached_result["sources"]
+                    }, to=sid)
+                    return {"success": True}
+            except Exception as cache_err:
+                print(f"[Socket.IO Cache Check] Error: {cache_err}")
+
         # Notify frontend that Mira is analyzing the request
         await sio.emit("mira:status", {
             "conversation_id": conversation_id,
             "status": "Mira is analyzing your request..."
         }, to=sid)
 
-        # Execute the research graph in the executor pool to keep Socket.io non-blocking
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None,
-            lambda: run_mira_research(
-                conversation_id=conversation_id,
-                practitioner_id=practitioner_id,
-                query=content,
-                attachments=attachments
-            )
-        )
-
-        # Stream the final response and citations back to the client
-        await sio.emit("mira:response", {
-            "conversation_id": conversation_id,
-            "role": "agent",
-            "content": result["response"],
-            "sources": result["sources"]
-        }, to=sid)
+        # Trigger Celery background task
+        process_research_task.delay(conversation_id, practitioner_id, content, attachments, sid)
+        print(f"[Socket.IO] Triggered Celery task process_research_task for conv={conversation_id}")
 
         return {"success": True}
 

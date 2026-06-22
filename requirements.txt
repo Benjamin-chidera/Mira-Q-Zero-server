@@ -21,3 +21,5 @@ mistralai
 langchain-mistralai
 mistralai[realtime]
 langchain-nvidia-ai-endpoints
+redis>=5.0.1
+celery>=5.3.6

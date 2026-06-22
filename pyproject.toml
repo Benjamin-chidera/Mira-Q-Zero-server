@@ -29,6 +29,8 @@ dependencies = [
     "setuptools<70",
     "sqlmodel>=0.0.38",
     "uvicorn[standard]>=0.46.0",
+    "redis>=5.0.1",
+    "celery>=5.3.6",
 ]
 
 [dependency-groups]

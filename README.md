@@ -89,6 +89,36 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 The API will be available at `http://localhost:8000`.  
 Swagger UI Documentation: `http://localhost:8000/docs`
 
+### 🐳 Running with Docker Compose
+
+The application is containerized with Docker and Docker Compose. It provisions three services:
+1. **web:** The FastAPI web backend.
+2. **worker:** The Celery background task worker for agent executions.
+3. **redis:** The Redis instance used for caching and Celery broker/backend.
+
+Ensure you have Docker installed, then configure your `.env` file and run:
+
+```bash
+docker-compose up --build
+```
+
+### 🧠 Redis Caching & Background Workers
+
+To optimize response times and manage long-running agent tasks without blocking the main event loop, we use:
+- **Redis Caching:** Query requests are hashed using MD5 of the query and attachment names. Successful CrewAI responses are cached in Redis for 1 hour.
+- **Celery Worker:** AI computations are delegated to a Celery worker (`worker` service in compose or run `celery -A celery_worker.celery_app worker --loglevel=info`).
+- **Pub/Sub Real-time Flow:** The Celery worker publishes result updates to a Redis pub/sub channel. An async listener running inside the web process listens and pushes the responses to the corresponding Socket.IO client ID.
+
+### 📋 Mira Research Center Status Workflow
+
+Mira Research Center tracks the state of each research session:
+- **Ongoing:** Currently active research.
+- **Completed:** Marked successful by the practitioner.
+- **Failed:** Marked failed (e.g., no relevant studies found). Prompts user for a reason.
+- **Abandoned:** Closed or abandoned by the user. Prompts user for a reason.
+
+All updates are audited on the backend, and status changes are persisted in the SQLite/PostgreSQL database.
+
 ## 🔒 Default Admin Account
 
 Upon the first run, the system automatically seeds a default administrator account. You can override these defaults via environment variables:

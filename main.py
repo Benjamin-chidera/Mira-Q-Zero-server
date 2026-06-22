@@ -23,6 +23,9 @@ from routes.mira.allergy import router as allergy_router
 from routes.bookings import router as bookings_router
 from routes.tts import router as tts_router
 from routes.mira.ai_research import router as ai_research_router
+from routes.mira.research_center_route import router as research_center_router
+from routes.mira.case_history_route import router as case_history_router
+from utils.mira.case_history.history import CaseHistory
 import socketio
 from socket_setup import sio
 
@@ -87,8 +90,17 @@ async def lifespan(app: FastAPI):
         try:
             conn.execute(text("ALTER TABLE patient ADD COLUMN doctor_id INTEGER"))
             print("[Migration] Added doctor_id to patient table.")
-        except Exception as e:
-            # Column likely already exists
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE researchconversation ADD COLUMN status VARCHAR DEFAULT 'Ongoing'"))
+            print("[Migration] Added status to researchconversation table.")
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE researchconversation ADD COLUMN status_reason VARCHAR"))
+            print("[Migration] Added status_reason to researchconversation table.")
+        except Exception:
             pass
             
     seed_default_admin()
@@ -129,6 +141,8 @@ routers = [
     (bookings_router, "/api"),
     (tts_router, "/api"),
     (ai_research_router, ""),
+    (research_center_router, ""),
+    (case_history_router, ""),
 ]
 
 for r, default_prefix in routers:

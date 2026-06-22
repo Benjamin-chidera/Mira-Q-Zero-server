@@ -1,5 +1,6 @@
 import os
 import io
+import re
 import base64
 import json
 import sqlite3
@@ -16,11 +17,19 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
-from utils.mira.crew_config import get_mira_crew
+from utils.mira.crew_config import get_mira_crew, thread_local_sources
 from utils.mira.ai_research_models import ResearchConversation, ResearchMessage
+from utils.redis_client import redis_client
+import hashlib
 
 from dotenv import load_dotenv
 load_dotenv()
+
+def get_cache_key(query: str, attachments: list) -> str:
+    # Sort keys for consistent serialization
+    attachments_str = json.dumps(attachments or [], sort_keys=True)
+    combined = f"query:{query}|attachments:{attachments_str}"
+    return "mira:research_cache:" + hashlib.md5(combined.encode("utf-8")).hexdigest()
 
 # Set NVIDIA_NIM_API_KEY for CrewAI/litellm compatibility if not already set
 if os.getenv("NVIDIA_API_KEY") and not os.getenv("NVIDIA_NIM_API_KEY"):
@@ -181,6 +190,26 @@ def route_intent(state: ResearchState) -> Dict[str, Any]:
         
     return {"intent": result}
 
+def extract_sources_from_text(text: str) -> List[Dict[str, str]]:
+    """Extracts markdown links from the text and formats them as source objects."""
+    matches = re.findall(r'\[([^\]]+)\]\(((?:https?://(?:[^()]+|\([^()]*\))+))\)', text)
+    sources = []
+    seen_urls = set()
+    for idx, (label, url) in enumerate(matches):
+        url = url.strip()
+        if url not in seen_urls:
+            seen_urls.add(url)
+            source_type = "url"
+            if url.lower().endswith(".pdf"):
+                source_type = "pdf"
+            sources.append({
+                "id": f"ref_{idx}_{int(datetime.utcnow().timestamp())}",
+                "label": label.strip(),
+                "url": url,
+                "type": source_type
+            })
+    return sources
+
 def direct_answer(state: ResearchState) -> Dict[str, Any]:
     """Handles simple QA queries quickly with a single LLM call."""
     llm = ChatNVIDIA(
@@ -200,17 +229,27 @@ def direct_answer(state: ResearchState) -> Dict[str, Any]:
         f"Chat History:\n{history_str}\n"
         f"Extracted Context from files/URLs:\n{state['extracted_context']}\n\n"
         f"User Query: {state['user_query']}\n\n"
-        "Provide your recommendation structured with bold headings. If references were utilized, cite them."
+        "Provide your recommendation structured with bold headings. If references were utilized, cite them. "
+        "When citing references, please include standard clickable markdown links like [Label](https://...)."
     )
     
     response = llm.invoke(prompt)
+    response_text = response.content
+    
+    sources = extract_sources_from_text(response_text)
+    if not sources:
+        sources = [{"label": "Direct LLM Answer", "type": "protocol"}]
+        
     return {
-        "response": response.content,
-        "sources": [{"label": "Direct LLM Answer", "type": "protocol"}]
+        "response": response_text,
+        "sources": sources
     }
 
 def crew_research(state: ResearchState) -> Dict[str, Any]:
     """Triggers CrewAI multi-agent clinical research for complex questions."""
+    # Initialize thread-local storage for accumulated sources
+    thread_local_sources.sources = []
+    
     crew = get_mira_crew()
     
     # Run CrewAI synchronously
@@ -220,15 +259,42 @@ def crew_research(state: ResearchState) -> Dict[str, Any]:
     }
     
     result = crew.kickoff(inputs=inputs)
+    response_text = str(result)
     
-    # Extract sources from Tavily logs or construct from output
+    # 1. Start with the sources accumulated by the search tools during execution
+    accumulated = getattr(thread_local_sources, "sources", [])
+    
+    # 2. Extract sources directly mentioned in the final markdown output (clickable markdown links)
+    markdown_sources = extract_sources_from_text(response_text)
+    
+    # Merge them by URL to ensure uniqueness
     sources = []
-    # CrewAI output contains raw string. We parse it or attach default citations.
-    sources.append({"id": "s1", "label": "Tavily Search Engine", "type": "url"})
-    sources.append({"id": "s2", "label": "Clinical Guideline Review", "type": "pdf"})
+    seen_urls = set()
     
+    # Prioritize markdown sources as they are explicitly cited in the text
+    for src in markdown_sources:
+        if src["url"] not in seen_urls:
+            seen_urls.add(src["url"])
+            sources.append(src)
+            
+    # Then add any other unique search results
+    for idx, src in enumerate(accumulated):
+        if src["url"] not in seen_urls:
+            seen_urls.add(src["url"])
+            src["id"] = f"search_{idx}_{int(datetime.utcnow().timestamp())}"
+            sources.append(src)
+            
+    # If no sources found at all, we can fallback to standard citations
+    if not sources:
+        sources.append({
+            "id": f"s_fallback_{int(datetime.utcnow().timestamp())}",
+            "label": "Tavily Search Engine",
+            "type": "url",
+            "url": "https://tavily.com"
+        })
+        
     return {
-        "response": str(result),
+        "response": response_text,
         "sources": sources
     }
 
@@ -279,20 +345,24 @@ def run_mira_research(
     """
     attachments = attachments or []
     
+    is_transient = conversation_id.startswith("transient_")
+    
     with Session(engine) as session:
-        # 1. Ensure Conversation exists
-        conv = session.get(ResearchConversation, conversation_id)
-        if not conv:
-            conv = ResearchConversation(
-                id=conversation_id,
-                practitioner_id=practitioner_id,
-                title=query[:50] or "New Research Session",
-                preview="Starting lookup...",
-                conversation_type="chat"
-            )
-            session.add(conv)
-            session.commit()
-            session.refresh(conv)
+        # 1. Ensure Conversation exists (only if not transient)
+        conv = None
+        if not is_transient:
+            conv = session.get(ResearchConversation, conversation_id)
+            if not conv:
+                conv = ResearchConversation(
+                    id=conversation_id,
+                    practitioner_id=practitioner_id,
+                    title=query[:50] or "New Research Session",
+                    preview="Starting lookup...",
+                    conversation_type="chat"
+                )
+                session.add(conv)
+                session.commit()
+                session.refresh(conv)
             
         # 2. Fetch Chat History
         stmt = select(ResearchMessage).where(
@@ -307,23 +377,56 @@ def run_mira_research(
                 "content": msg.content
             })
             
-        # 3. Assemble Initial LangGraph State
-        initial_state = {
-            "conversation_id": conversation_id,
-            "practitioner_id": practitioner_id,
-            "user_query": query,
-            "attachments": attachments,
-            "extracted_context": "",
-            "chat_history": chat_history,
-            "intent": "",
-            "response": "",
-            "sources": []
-        }
-        
-        # 4. Invoke LangGraph
-        config = {"configurable": {"thread_id": conversation_id}}
-        final_state = mira_research_graph.invoke(initial_state, config=config)
-        
+        # Check cache
+        cache_key = get_cache_key(query, attachments)
+        cached_result = None
+        if redis_client:
+            try:
+                val = redis_client.get(cache_key)
+                if val:
+                    cached_result = json.loads(val)
+                    print(f"[Redis Cache] Cache hit for query: '{query[:30]}'")
+            except Exception as e:
+                print(f"[Redis Cache] Error reading cache: {e}")
+
+        if cached_result:
+            response_val = cached_result["response"]
+            sources_val = cached_result["sources"]
+        else:
+            # 3. Assemble Initial LangGraph State
+            initial_state = {
+                "conversation_id": conversation_id,
+                "practitioner_id": practitioner_id,
+                "user_query": query,
+                "attachments": attachments,
+                "extracted_context": "",
+                "chat_history": chat_history,
+                "intent": "",
+                "response": "",
+                "sources": []
+            }
+            
+            # 4. Invoke LangGraph
+            config = {"configurable": {"thread_id": conversation_id}}
+            final_state = mira_research_graph.invoke(initial_state, config=config)
+            response_val = final_state["response"]
+            sources_val = final_state["sources"]
+            
+            # Cache the new result
+            if redis_client:
+                try:
+                    redis_client.setex(
+                        cache_key,
+                        3600,
+                        json.dumps({
+                            "response": response_val,
+                            "sources": sources_val
+                        })
+                    )
+                    print(f"[Redis Cache] Cached result for key: {cache_key}")
+                except Exception as e:
+                    print(f"[Redis Cache] Error writing to cache: {e}")
+
         # 5. Save User Message
         user_message = ResearchMessage(
             id=f"msg_u_{datetime.utcnow().timestamp()}",
@@ -339,19 +442,20 @@ def run_mira_research(
             id=f"msg_a_{datetime.utcnow().timestamp()}",
             conversation_id=conversation_id,
             role="agent",
-            content=final_state["response"],
-            sources_json=json.dumps(final_state["sources"])
+            content=response_val,
+            sources_json=json.dumps(sources_val)
         )
         session.add(agent_message)
         
-        # 7. Update Conversation Preview
-        conv.preview = final_state["response"][:100] + "..."
-        conv.updated_at = datetime.utcnow()
-        session.add(conv)
+        # 7. Update Conversation Preview (only if not transient)
+        if not is_transient and conv:
+            conv.preview = response_val[:100] + "..."
+            conv.updated_at = datetime.utcnow()
+            session.add(conv)
         
         session.commit()
         
         return {
-            "response": final_state["response"],
-            "sources": final_state["sources"]
+            "response": response_val,
+            "sources": sources_val
         }

@@ -9,6 +9,8 @@ class ResearchConversation(SQLModel, table=True):
     title: str
     preview: str
     conversation_type: str = Field(default="chat")  # "chat" or "call"
+    status: str = Field(default="Ongoing")          # "Ongoing", "Completed", "Failed", "Abandoned"
+    status_reason: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

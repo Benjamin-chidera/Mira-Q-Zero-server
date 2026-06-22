@@ -1,4 +1,5 @@
 import json
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 from sqlmodel import Session, select
 from database import get_session
@@ -21,7 +22,9 @@ def get_conversations(practitioner_id: int, session: Session = Depends(get_sessi
             "preview": conv.preview,
             "date": conv.created_at.strftime("%b %d"),
             "timestamp": conv.created_at.strftime("%H:%M"),
-            "type": conv.conversation_type
+            "type": conv.conversation_type,
+            "status": conv.status,
+            "status_reason": conv.status_reason
         }
         for conv in convs
     ]
@@ -89,17 +92,60 @@ def create_conversation(data: dict, session: Session = Depends(get_session)):
     return {"message": "Conversation created", "conversation_id": conv_id}
 
 @router.delete("/conversations/{conversation_id}")
-def delete_conversation(conversation_id: str, session: Session = Depends(get_session)):
+def delete_conversation(
+    conversation_id: str,
+    reason: Optional[str] = None,
+    session: Session = Depends(get_session)
+):
     """Deletes a conversation and all its associated messages."""
+    from typing import Optional
     conv = session.get(ResearchConversation, conversation_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
         
+    # Log the audit trail for delete reason
+    print(f"[Audit] Deleting conversation '{conversation_id}' with reason: '{reason}'")
+        
+    # Log to Case History as Deleted before deleting from active tables
+    from utils.mira.case_history.history import log_case_history
+    
     # Delete associated messages
-    stmt = select(ResearchMessage).where(ResearchMessage.conversation_id == conversation_id)
+    stmt = select(ResearchMessage).where(ResearchMessage.conversation_id == conversation_id).order_by(ResearchMessage.created_at.asc())
     msgs = session.exec(stmt).all()
+    messages_list = []
     for msg in msgs:
+        attachments = []
+        if msg.attachments_json:
+            try:
+                attachments = json.loads(msg.attachments_json)
+            except Exception:
+                pass
+        sources = []
+        if msg.sources_json:
+            try:
+                sources = json.loads(msg.sources_json)
+            except Exception:
+                pass
+        messages_list.append({
+            "id": msg.id,
+            "role": msg.role,
+            "content": msg.content,
+            "timestamp": msg.created_at.strftime("%H:%M"),
+            "attachments": attachments,
+            "sources": sources
+        })
         session.delete(msg)
+        
+    log_case_history(
+        session=session,
+        practitioner_id=conv.practitioner_id,
+        conversation_id=conversation_id,
+        title=conv.title,
+        preview=conv.preview,
+        status="Deleted",
+        status_reason=reason,
+        messages=messages_list
+    )
         
     session.delete(conv)
     session.commit()
