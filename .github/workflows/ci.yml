@@ -44,4 +44,5 @@ jobs:
         env:
           REDIS_URL: redis://localhost:6379/0
           TESTING: "True"
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
         run: uv run pytest
