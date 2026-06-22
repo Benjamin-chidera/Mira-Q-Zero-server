@@ -1,10 +1,36 @@
 name: gp-connect
 
 services:
+  nginx-proxy:
+    image: nginxproxy/nginx-proxy
+    container_name: gp-connect-nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - certs:/etc/nginx/certs
+      - vhost:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+    restart: always
+
+  acme-companion:
+    image: nginxproxy/acme-companion
+    container_name: gp-connect-acme-companion
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - certs:/etc/nginx/certs:rw
+      - vhost:/etc/nginx/vhost.d:rw
+      - html:/usr/share/nginx/html:rw
+      - acme:/etc/acme.sh
+    environment:
+      - DEFAULT_EMAIL=admin@gpconnect.nhs.uk
+    depends_on:
+      - nginx-proxy
+    restart: always
+
   web:
     build: .
-    ports:
-      - "8000:8000"
     volumes:
       - .:/app
       - /app/.venv
@@ -14,6 +40,10 @@ services:
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@gpconnect.nhs.uk}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-AdminPass123!}
       - ADMIN_NAME=${ADMIN_NAME:-System Administrator}
+      - VIRTUAL_HOST=gp-connect.discoverbenix.com
+      - VIRTUAL_PORT=8000
+      - LETSENCRYPT_HOST=gp-connect.discoverbenix.com
+      - LETSENCRYPT_EMAIL=admin@gpconnect.nhs.uk
     env_file:
       - .env
     depends_on:
@@ -41,8 +71,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     volumes:
       - gp_connect_redis_data:/data
 
@@ -54,8 +82,6 @@ services:
       MYSQL_USER: ${MYSQL_USER:-gpuser}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-gppassword}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-gprootpassword}
-    ports:
-      - "3306:3306"
     volumes:
       - gp_connect_db_data:/var/lib/mysql
     healthcheck:
@@ -67,3 +93,7 @@ services:
 volumes:
   gp_connect_redis_data:
   gp_connect_db_data:
+  certs:
+  vhost:
+  html:
+  acme:
