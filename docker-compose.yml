@@ -9,16 +9,18 @@ services:
       - .:/app
       - /app/.venv
     environment:
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=sqlite:////app/gp_connect.db
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - DATABASE_URL=${DATABASE_URL:-mysql+pymysql://${MYSQL_USER:-gpuser}:${MYSQL_PASSWORD:-gppassword}@db:3306/${MYSQL_DATABASE:-gpconnect}}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@gpconnect.nhs.uk}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-AdminPass123!}
       - ADMIN_NAME=${ADMIN_NAME:-System Administrator}
-      # Load all other variables from the local .env
     env_file:
       - .env
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      db:
+        condition: service_healthy
 
   worker:
     build: .
@@ -27,12 +29,15 @@ services:
       - .:/app
       - /app/.venv
     environment:
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=sqlite:////app/gp_connect.db
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - DATABASE_URL=${DATABASE_URL:-mysql+pymysql://${MYSQL_USER:-gpuser}:${MYSQL_PASSWORD:-gppassword}@db:3306/${MYSQL_DATABASE:-gpconnect}}
     env_file:
       - .env
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      db:
+        condition: service_healthy
 
   redis:
     image: redis:7-alpine
@@ -41,5 +46,24 @@ services:
     volumes:
       - gp_connect_redis_data:/data
 
+  db:
+    image: mysql:8
+    restart: always
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-gpconnect}
+      MYSQL_USER: ${MYSQL_USER:-gpuser}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-gppassword}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-gprootpassword}
+    ports:
+      - "3306:3306"
+    volumes:
+      - gp_connect_db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$${MYSQL_ROOT_PASSWORD}"]
+      timeout: 5s
+      retries: 5
+      interval: 5s
+
 volumes:
   gp_connect_redis_data:
+  gp_connect_db_data:
