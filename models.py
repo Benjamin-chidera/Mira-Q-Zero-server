@@ -1,5 +1,5 @@
-from sqlmodel import SQLModel, Field
-from sqlalchemy import LargeBinary
+from sqlmodel import SQLModel, Field, Column
+from sqlalchemy import LargeBinary, TEXT
 from datetime import datetime
 from typing import Optional
 
@@ -52,7 +52,7 @@ class PatientDocument(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     patient_id: int = Field(foreign_key="patient.id", index=True)
     title: str 
-    content: str = Field(default=None)
+    content: str = Field(default=None, sa_column=Column(TEXT, nullable=True))
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 # Document Amendments (updates, corrections, or annotations added to documents after their initial creation.)
@@ -60,7 +60,7 @@ class DocumentAmendment(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     patient_id: int = Field(foreign_key="patient.id", index=True)
     document_id: int = Field(foreign_key="patientdocument.id", index=True)
-    amendment_text: str
+    amendment_text: str = Field(sa_column=Column(TEXT, nullable=False))
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 # PACS Imaging (X-rays, CT scans, MRIs, etc)
@@ -72,7 +72,7 @@ class PACSImaging(SQLModel, table=True):
     body_site: str = Field(default=None) # e.g. "Chest", "Head", "Abdomen"
     reason_for_scan: str = Field(default=None)
     image_path: str = Field(default=None)  # path to .jpg file
-    radiologist_report: str = Field(default=None)
+    radiologist_report: str = Field(default=None, sa_column=Column(TEXT, nullable=True))
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 # Operative Notes (surgical treatments)
@@ -83,8 +83,8 @@ class OperativeNote(SQLModel, table=True):
     procedure_performed: str
     pre_op_diagnosis: str = Field(default=None)
     post_op_diagnosis: str = Field(default=None)
-    narrative_text: str = Field(default=None)
-    post_op_instructions: str = Field(default=None) 
+    narrative_text: str = Field(default=None, sa_column=Column(TEXT, nullable=True))
+    post_op_instructions: str = Field(default=None, sa_column=Column(TEXT, nullable=True)) 
     surgeon_name: str = Field(default=None)
     surgery_date: str = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -92,7 +92,7 @@ class OperativeNote(SQLModel, table=True):
 class ClinicalNotes(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     patient_id: int = Field(foreign_key="patient.id", index=True)
-    content: str
+    content: str = Field(sa_column=Column(TEXT, nullable=False))
     author: str  ## Author can be a GP or any healthcare practitioner   
     author_role: str = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)

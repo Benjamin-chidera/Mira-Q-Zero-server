@@ -211,7 +211,29 @@ def extract_sources_from_text(text: str) -> List[Dict[str, str]]:
     return sources
 
 def direct_answer(state: ResearchState) -> Dict[str, Any]:
-    """Handles simple QA queries quickly with a single LLM call."""
+    """Handles simple QA queries quickly with a single LLM call and Tavily web search."""
+    from langchain_community.tools import TavilySearchResults
+    tavily = TavilySearchResults(max_results=3)
+    
+    search_context = ""
+    search_sources = []
+    try:
+        search_results = tavily.invoke(state["user_query"])
+        search_context = f"\n=== Web Search Results ===\n{str(search_results)}\n"
+        
+        # Parse search results to collect verified sources
+        if isinstance(search_results, list):
+            for idx, r in enumerate(search_results):
+                if isinstance(r, dict) and "url" in r:
+                    search_sources.append({
+                        "id": f"qa_search_{idx}_{int(datetime.utcnow().timestamp())}",
+                        "label": r.get("title") or "Web Search Result",
+                        "url": r["url"],
+                        "type": "url"
+                    })
+    except Exception as e:
+        print(f"[AI Researcher] Quick Q&A search error: {e}")
+
     llm = ChatNVIDIA(
         model="meta/llama-3.3-70b-instruct",
         nvidia_api_key=os.getenv("NVIDIA_API_KEY"),
@@ -225,18 +247,36 @@ def direct_answer(state: ResearchState) -> Dict[str, Any]:
         
     prompt = (
         "You are Mira, a helpful and highly accurate clinical AI assistant.\n"
-        "Provide a direct, medically sound response based on the patient case, query, and history.\n\n"
+        "Provide a direct, medically sound response based on the patient case, query, history, and provided search context.\n\n"
         f"Chat History:\n{history_str}\n"
         f"Extracted Context from files/URLs:\n{state['extracted_context']}\n\n"
+        f"Web Search Context:\n{search_context}\n\n"
         f"User Query: {state['user_query']}\n\n"
-        "Provide your recommendation structured with bold headings. If references were utilized, cite them. "
-        "When citing references, please include standard clickable markdown links like [Label](https://...)."
+        "Provide your recommendation structured with bold headings. "
+        "You MUST base your response on the provided 'Web Search Context' and 'Extracted Context' (files/images/URLs) rather than relying on your own memory or trained weights. "
+        "When referencing search findings, please include standard clickable markdown links using the EXACT URLs from the 'Web Search Context' or 'Extracted Context'. "
+        "🔴 CRITICAL: Never include markdown hyperlinks or URLs unless they are explicitly present in the provided 'Web Search Context' or 'Extracted Context'. Do not invent or hallucinate any URLs or links."
     )
     
     response = llm.invoke(prompt)
     response_text = response.content
     
-    sources = extract_sources_from_text(response_text)
+    # Extract cited sources from the generated text
+    cited_sources = extract_sources_from_text(response_text)
+    
+    # Merge and deduplicate cited sources and search results
+    sources = []
+    seen_urls = set()
+    for src in cited_sources:
+        if src.get("url") not in seen_urls:
+            seen_urls.add(src["url"])
+            sources.append(src)
+            
+    for src in search_sources:
+        if src.get("url") not in seen_urls:
+            seen_urls.add(src["url"])
+            sources.append(src)
+            
     if not sources:
         sources = [{"label": "Direct LLM Answer", "type": "protocol"}]
         

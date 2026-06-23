@@ -1,4 +1,5 @@
-from sqlmodel import SQLModel, Field, Session, select
+from sqlmodel import SQLModel, Field, Session, select, Column
+from sqlalchemy import TEXT
 from datetime import datetime
 from typing import Optional
 import json
@@ -11,7 +12,7 @@ class CaseHistory(SQLModel, table=True):
     preview: str
     status: str  # "Completed", "Failed", "Abandoned", "Deleted"
     status_reason: Optional[str] = Field(default=None)
-    messages_json: str  # JSON serialized list of conversation messages
+    messages_json: str = Field(sa_column=Column(TEXT, nullable=False))  # JSON serialized list of conversation messages
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 def log_case_history(

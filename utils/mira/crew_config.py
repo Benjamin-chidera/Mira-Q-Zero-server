@@ -266,7 +266,8 @@ def get_mira_crew() -> Crew:
             "### Sources & References\n"
             "List all publications, guidelines, and URLs consulted. All references MUST contain clickable "
             "links in standard markdown format: [Label](https://...). Prioritize high-authority sources: "
-            "NICE, ESC, AHA, KDIGO, ASA, Lancet, NEJM, BMJ."
+            "NICE, ESC, AHA, KDIGO, ASA, Lancet, NEJM, BMJ.\n\n"
+            "🔴 CRITICAL: Never construct, invent, or hallucinate URLs or links from your own memory. You MUST ONLY use the exact, real URLs that were returned in the search results from the Medical Search Agent. If you cite a publication or guideline but do not have its verified URL from the search results, write the citation as plain text without a hyperlink."
         ),
         expected_output=(
             "A complete Emergency Research Brief in the exact format specified, with all 4 numbered sections "

@@ -1,4 +1,5 @@
-from sqlmodel import SQLModel, Field
+from sqlmodel import SQLModel, Field, Column
+from sqlalchemy import TEXT
 from datetime import datetime
 from typing import Optional
 import models
@@ -18,7 +19,7 @@ class ResearchMessage(SQLModel, table=True):
     id: str = Field(primary_key=True)
     conversation_id: str = Field(foreign_key="researchconversation.id", index=True, ondelete="CASCADE")
     role: str  # "user" or "agent"
-    content: str
-    attachments_json: Optional[str] = Field(default=None)  # Serialized list of attachments
-    sources_json: Optional[str] = Field(default=None)      # Serialized list of sources
+    content: str = Field(sa_column=Column(TEXT, nullable=False))
+    attachments_json: Optional[str] = Field(default=None, sa_column=Column(TEXT, nullable=True))  # Serialized list of attachments
+    sources_json: Optional[str] = Field(default=None, sa_column=Column(TEXT, nullable=True))      # Serialized list of sources
     created_at: datetime = Field(default_factory=datetime.utcnow)

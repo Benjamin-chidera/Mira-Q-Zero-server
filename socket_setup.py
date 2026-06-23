@@ -383,6 +383,20 @@ async def handle_mira_voice_message(sid, data):
         
         # 3. Save User Message to Database
         with Session(engine) as session:
+            # Auto-create conversation if it doesn't exist (lazy creation on call start)
+            conv = session.get(ResearchConversation, conversation_id)
+            if not conv:
+                conv = ResearchConversation(
+                    id=conversation_id,
+                    practitioner_id=practitioner_id,
+                    title="Voice Call - " + datetime.utcnow().strftime("%b %d"),
+                    preview="Call starting...",
+                    conversation_type="call"
+                )
+                session.add(conv)
+                session.commit()
+                session.refresh(conv)
+
             user_message = ResearchMessage(
                 id=f"msg_u_{datetime.utcnow().timestamp()}",
                 conversation_id=conversation_id,
@@ -551,6 +565,21 @@ async def handle_call_send_docs(sid, data):
         if full_context.strip():
             # Save a system context message to the DB
             with Session(engine) as session:
+                # Auto-create conversation if it doesn't exist
+                conv = session.get(ResearchConversation, conversation_id)
+                if not conv:
+                    practitioner_id = int(data.get("practitioner_id", 0)) or 1
+                    conv = ResearchConversation(
+                        id=conversation_id,
+                        practitioner_id=practitioner_id,
+                        title="Voice Call - " + datetime.utcnow().strftime("%b %d"),
+                        preview="Processing attachments...",
+                        conversation_type="call"
+                    )
+                    session.add(conv)
+                    session.commit()
+                    session.refresh(conv)
+
                 sys_message = ResearchMessage(
                     id=f"msg_s_{datetime.utcnow().timestamp()}",
                     conversation_id=conversation_id,

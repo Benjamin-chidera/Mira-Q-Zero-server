@@ -86,3 +86,66 @@ def test_redis_cache_key_and_hitting(mock_redis_client):
     # Different inputs should yield different keys
     key3 = get_cache_key("Thyroidectomy in Lupus", [])
     assert key1 != key3
+
+def test_case_history_endpoints(client, session: Session):
+    from models import User
+    from utils.mira.case_history.history import CaseHistory
+    
+    # 1. Arrange: Create a practitioner user
+    user = User(
+        email="history_doc@gpconnect.nhs.uk",
+        name="History Doctor",
+        role="practitioner",
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    # 2. Arrange: Create case history entries
+    history1 = CaseHistory(
+        practitioner_id=user.id,
+        conversation_id="conv_success_1",
+        title="Successful Research",
+        preview="Everything went well",
+        status="Completed",
+        messages_json='[{"role": "user", "content": "hello"}, {"role": "agent", "content": "hi"}]'
+    )
+    history2 = CaseHistory(
+        practitioner_id=user.id,
+        conversation_id="conv_deleted_2",
+        title="Deleted Research",
+        preview="This was deleted",
+        status="Deleted",
+        status_reason="User clicked delete",
+        messages_json='[]'
+    )
+    session.add(history1)
+    session.add(history2)
+    session.commit()
+
+    # 3. Act: GET case history list
+    response = client.get(f"/mira/case-history?practitioner_id={user.id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2
+    
+    # Verify status mapping
+    statuses = {item["id"]: item["status"] for item in data}
+    assert statuses["conv_success_1"] == "success"
+    assert statuses["conv_deleted_2"] == "deleted"
+
+    # 4. Act: GET filtered case history list (status=deleted)
+    response_deleted = client.get(f"/mira/case-history?practitioner_id={user.id}&status=deleted")
+    assert response_deleted.status_code == 200
+    data_deleted = response_deleted.json()
+    assert len(data_deleted) == 1
+    assert data_deleted[0]["id"] == "conv_deleted_2"
+
+    # 5. Act: GET case history details
+    response_details = client.get(f"/mira/case-history/conv_success_1/details")
+    assert response_details.status_code == 200
+    details = response_details.json()
+    assert details["title"] == "Successful Research"
+    assert len(details["messages"]) == 2
+    assert details["messages"][0]["role"] == "user"
+

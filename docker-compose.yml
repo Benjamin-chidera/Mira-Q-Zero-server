@@ -5,7 +5,7 @@ services:
     image: nginxproxy/nginx-proxy
     container_name: gp-connect-nginx-proxy
     ports:
-      - "80:80"
+      - "8080:80"
       - "443:443"
     volumes:
       - /var/run/docker.sock:/tmp/docker.sock:ro
@@ -32,12 +32,14 @@ services:
 
   web:
     build: .
+    ports:
+      - "8000:8000"
     volumes:
       - .:/app
       - /app/.venv
     environment:
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - DATABASE_URL=${DATABASE_URL:-mysql+pymysql://${MYSQL_USER:-gpuser}:${MYSQL_PASSWORD:-gppassword}@db:3306/${MYSQL_DATABASE:-gpconnect}}
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=mysql+pymysql://${MYSQL_USER:-gpuser}:${MYSQL_PASSWORD:-gppassword}@db:3306/${MYSQL_DATABASE:-gpconnect}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@gpconnect.nhs.uk}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-AdminPass123!}
       - ADMIN_NAME=${ADMIN_NAME:-System Administrator}
@@ -60,8 +62,8 @@ services:
       - .:/app
       - /app/.venv
     environment:
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - DATABASE_URL=${DATABASE_URL:-mysql+pymysql://${MYSQL_USER:-gpuser}:${MYSQL_PASSWORD:-gppassword}@db:3306/${MYSQL_DATABASE:-gpconnect}}
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=mysql+pymysql://${MYSQL_USER:-gpuser}:${MYSQL_PASSWORD:-gppassword}@db:3306/${MYSQL_DATABASE:-gpconnect}
     env_file:
       - .env
     depends_on:
@@ -72,6 +74,8 @@ services:
 
   redis:
     image: redis:7-alpine
+    ports:
+      - "6379:6379"
     volumes:
       - gp_connect_redis_data:/data
 

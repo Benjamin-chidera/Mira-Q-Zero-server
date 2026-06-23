@@ -62,22 +62,22 @@ def seed_default_doctors():
         {"email": "mccoy@gpconnect.nhs.uk", "name": "Leonard McCoy", "password": "Password123!"},
     ]
     with Session(engine) as session:
-        # Clear existing practitioners to start fresh
-        existing_practitioners = session.exec(select(User).where(User.role == "practitioner")).all()
-        for p in existing_practitioners:
-            session.delete(p)
-        session.commit()
-
         for doc in doctors_data:
-            practitioner = User(
-                email=doc["email"],
-                password_hash=hash_password(doc["password"]),
-                name=doc["name"],
-                role="practitioner",
-            )
-            session.add(practitioner)
+            existing = session.exec(select(User).where(User.email == doc["email"])).first()
+            if not existing:
+                practitioner = User(
+                    email=doc["email"],
+                    password_hash=hash_password(doc["password"]),
+                    name=doc["name"],
+                    role="practitioner",
+                )
+                session.add(practitioner)
+            else:
+                existing.name = doc["name"]
+                existing.password_hash = hash_password(doc["password"])
+                session.add(existing)
         session.commit()
-        print("[Seed] 5 practitioners seeded successfully.")
+        print("[Seed] Practitioners seeded successfully.")
 
 
 @asynccontextmanager 
