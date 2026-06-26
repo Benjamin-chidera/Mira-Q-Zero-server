@@ -103,6 +103,21 @@ async def lifespan(app: FastAPI):
             print("[Migration] Added status_reason to researchconversation table.")
         except Exception:
             pass
+        try:
+            conn.execute(text("ALTER TABLE researchmessage MODIFY COLUMN content LONGTEXT"))
+            print("[Migration] Altered researchmessage content column to LONGTEXT.")
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE researchmessage MODIFY COLUMN attachments_json LONGTEXT"))
+            print("[Migration] Altered researchmessage attachments_json column to LONGTEXT.")
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE researchmessage MODIFY COLUMN sources_json LONGTEXT"))
+            print("[Migration] Altered researchmessage sources_json column to LONGTEXT.")
+        except Exception:
+            pass
             
     seed_default_admin()
     seed_default_doctors()
