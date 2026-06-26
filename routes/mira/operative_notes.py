@@ -39,6 +39,10 @@ async def create_operative_note(
     session.commit()
     session.refresh(note)
 
+    # Trigger background patient analysis & cache invalidation
+    from utils.mira.analysis import trigger_patient_analysis
+    trigger_patient_analysis(note.patient_id)
+
     return {
         "message": "Operative note created successfully",
         "note_id": note.id,

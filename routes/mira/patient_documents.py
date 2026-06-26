@@ -37,6 +37,10 @@ async def create_document(
     session.commit()
     session.refresh(document)
 
+    # Trigger background patient analysis
+    from utils.mira.analysis import trigger_patient_analysis
+    trigger_patient_analysis(document.patient_id)
+
     return {
         "message": "Document created successfully",
         "document_id": document.id,

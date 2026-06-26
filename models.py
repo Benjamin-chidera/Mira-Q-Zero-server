@@ -63,6 +63,22 @@ class DocumentAmendment(SQLModel, table=True):
     amendment_text: str = Field(sa_column=Column(TEXT, nullable=False))
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
+class MedicalGuidelineCache(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    keyword: str = Field(unique=True, index=True) # e.g. "metformin"
+    guidelines_json: str = Field(sa_column=Column(TEXT, nullable=False))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class PatientNotification(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    patient_id: int = Field(foreign_key="patient.id", index=True)
+    title: str
+    message: str
+    severity: str = Field(default="Medium") # "High", "Medium", "Low"
+    status: str = Field(default="Unresolved") # "Unresolved", "Resolved", "Acknowledged"
+    conversation_id: Optional[str] = Field(default=None, foreign_key="researchconversation.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
 # PACS Imaging (X-rays, CT scans, MRIs, etc)
 class PACSImaging(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -101,11 +117,11 @@ class Allergy(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     patient_id: int = Field(foreign_key="patient.id", index=True)
     substance: str
-    criticality: str = Field(default=None)  # e.g. "high", "low", "unable-to-assess"
-    reaction: str = Field(default=None)  # e.g. "rash", "anaphylaxis", "nausea"
+    criticality: Optional[str] = Field(default=None, nullable=True)  # e.g. "high", "low", "unable-to-assess"
+    reaction: Optional[str] = Field(default=None, nullable=True)  # e.g. "rash", "anaphylaxis", "nausea"
     status: str = Field(default="Active")  # e.g. "Active", "Inactive"  
-    updated_by: str = Field(default=None)
-    status_reason: str = Field(default=None)
+    updated_by: Optional[str] = Field(default=None, nullable=True)
+    status_reason: Optional[str] = Field(default=None, nullable=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -113,9 +129,15 @@ class Medication(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     patient_id: int = Field(foreign_key="patient.id", index=True)
     drug_name: str
-    dosage: str = Field(default=None)
-    frequency: str = Field(default=None)
-    updated_by: str = Field(default=None)
-    status_reason: str = Field(default=None)
+    dosage: Optional[str] = Field(default=None, nullable=True)
+    frequency: Optional[str] = Field(default=None, nullable=True)
+    updated_by: Optional[str] = Field(default=None, nullable=True)
+    status_reason: Optional[str] = Field(default=None, nullable=True)
     status: str = Field(default="Active")  # e.g. "Active", "Stopped", "Completed"
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PatientSummaryCache(SQLModel, table=True):
+    patient_id: int = Field(primary_key=True, foreign_key="patient.id", index=True)
+    summary_json: str = Field(sa_column=Column(TEXT, nullable=False))
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

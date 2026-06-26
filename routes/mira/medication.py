@@ -40,6 +40,10 @@ async def create_medication(
     session.commit()
     session.refresh(medication)
 
+    # Trigger background patient analysis
+    from utils.mira.analysis import trigger_patient_analysis
+    trigger_patient_analysis(medication.patient_id)
+
     return {
         "message": "Medication record created successfully",
         "medication_id": medication.id,
@@ -134,6 +138,10 @@ async def update_medication_status(
 
     session.commit()
     session.refresh(medication)
+
+    # Trigger background patient analysis
+    from utils.mira.analysis import trigger_patient_analysis
+    trigger_patient_analysis(medication.patient_id)
 
     return {
         "message": "Medication status updated successfully",

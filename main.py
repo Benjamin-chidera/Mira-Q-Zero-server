@@ -20,6 +20,7 @@ from routes.mira.operative_notes import router as operative_notes_router
 from routes.mira.clinical_notes import router as clinical_notes_router
 from routes.mira.medication import router as medication_router
 from routes.mira.allergy import router as allergy_router
+from routes.mira.notifications import router as notifications_router
 from routes.bookings import router as bookings_router
 from routes.tts import router as tts_router
 from routes.mira.ai_research import router as ai_research_router
@@ -142,6 +143,7 @@ routers = [
     (clinical_notes_router, ""),
     (medication_router, ""),
     (allergy_router, ""),
+    (notifications_router, ""),
     (bookings_router, "/api"),
     (tts_router, "/api"),
     (ai_research_router, ""),

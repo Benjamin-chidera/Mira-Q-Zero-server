@@ -12,6 +12,8 @@ def get_conversations(practitioner_id: int, session: Session = Depends(get_sessi
     """Fetches all research conversations for a given practitioner."""
     stmt = select(ResearchConversation).where(
         ResearchConversation.practitioner_id == practitioner_id
+    ).where(
+        ~ResearchConversation.id.like("transient_%")
     ).order_by(ResearchConversation.updated_at.desc())
     convs = session.exec(stmt).all()
     

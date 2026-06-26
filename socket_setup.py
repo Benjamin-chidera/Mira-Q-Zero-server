@@ -397,6 +397,52 @@ async def handle_mira_voice_message(sid, data):
                 session.commit()
                 session.refresh(conv)
 
+                # Seed transient patient details context if conversation ID starts with transient_patient_
+                if conversation_id.startswith("transient_patient_"):
+                    try:
+                        parts = conversation_id.split("_")
+                        patient_id = int(parts[2])
+                        from models import Patient, Medication, Allergy, PatientDocument, ClinicalNotes, OperativeNote, PACSImaging
+                        patient = session.get(Patient, patient_id)
+                        if patient:
+                            meds = session.exec(select(Medication).where(Medication.patient_id == patient_id).where(Medication.status == "Active")).all()
+                            allergies = session.exec(select(Allergy).where(Allergy.patient_id == patient_id).where(Allergy.status == "Active")).all()
+                            docs = session.exec(select(PatientDocument).where(PatientDocument.patient_id == patient_id)).all()
+                            notes = session.exec(select(ClinicalNotes).where(ClinicalNotes.patient_id == patient_id)).all()
+                            op_notes = session.exec(select(OperativeNote).where(OperativeNote.patient_id == patient_id)).all()
+                            pacs = session.exec(select(PACSImaging).where(PACSImaging.patient_id == patient_id)).all()
+
+                            meds_str = ", ".join([f"{m.drug_name} ({m.dosage} - {m.frequency})" for m in meds]) if meds else "None"
+                            allergies_str = ", ".join([f"{a.substance} (Reaction: {a.reaction})" for a in allergies]) if allergies else "None"
+                            docs_str = "\n".join([f"- {d.title}: {d.content}" for d in docs]) if docs else "None"
+                            notes_str = "\n".join([f"- {n.content} (Author: {n.author})" for n in notes]) if notes else "None"
+                            op_notes_str = "\n".join([f"- {o.procedure_name}: {o.procedure_performed}. Narrative: {o.narrative_text}" for o in op_notes]) if op_notes else "None"
+                            pacs_str = "\n".join([f"- Accession {p.accession_number} ({p.modality}): {p.radiologist_report}" for p in pacs]) if pacs else "None"
+
+                            context = (
+                                f"You are on a direct call with the doctor discussing NHS Patient: {patient.name} (Age: {patient.age}, Gender: {patient.gender}, NHS: {patient.nhs_number}).\n"
+                                f"Here is the patient's complete file context loaded from GP-Connect:\n"
+                                f"Active Medications: {meds_str}\n"
+                                f"Active Allergies: {allergies_str}\n"
+                                f"Documents / Discharge Summaries:\n{docs_str}\n"
+                                f"Clinical Notes:\n{notes_str}\n"
+                                f"Operative Notes:\n{op_notes_str}\n"
+                                f"PACS Imaging Reports:\n{pacs_str}\n\n"
+                                f"Keep your spoken answers extremely concise, patient-centered, and clinically precise. Assist the doctor in reviewing or auditing this patient's records."
+                            )
+
+                            sys_msg = ResearchMessage(
+                                id=f"msg_sys_context_{datetime.utcnow().timestamp()}",
+                                conversation_id=conversation_id,
+                                role="system",
+                                content=context,
+                                attachments_json="[]"
+                            )
+                            session.add(sys_msg)
+                            session.commit()
+                    except Exception as ex:
+                        print(f"[Socket.IO] Error seeding transient patient context: {ex}")
+
             user_message = ResearchMessage(
                 id=f"msg_u_{datetime.utcnow().timestamp()}",
                 conversation_id=conversation_id,

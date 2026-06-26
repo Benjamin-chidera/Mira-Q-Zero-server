@@ -34,6 +34,77 @@ def search_clinical_guidelines(query: str) -> str:
     except Exception as e:
         return f"Error searching: {str(e)}"
 
+@tool("Get patient clinical record by name or NHS number")
+def get_patient_clinical_record(identifier: str) -> str:
+    """
+    Retrieves the complete clinical record (allergies, medications, documents, notes, surgeries, PACS scans) 
+    for a patient matching the given name, ID, or NHS number.
+    Use this tool whenever the practitioner asks about a specific patient's history, active medications, 
+    allergies, clinical notes, or documents.
+    """
+    from sqlmodel import Session, select, or_
+    from database import engine
+    from models import Patient, Allergy, Medication, PatientDocument, ClinicalNotes, OperativeNote, PACSImaging
+    
+    identifier_clean = identifier.strip()
+    if not identifier_clean:
+        return "Please provide a valid patient name, ID, or NHS number."
+        
+    try:
+        with Session(engine) as session:
+            # Try to match by ID if numeric
+            patient = None
+            if identifier_clean.isdigit():
+                patient = session.get(Patient, int(identifier_clean))
+            
+            # If not found or not numeric, match by name or NHS number
+            if not patient:
+                stmt = select(Patient).where(
+                    or_(
+                        Patient.name.like(f"%{identifier_clean}%"),
+                        Patient.nhs_number == identifier_clean
+                    )
+                )
+                patient = session.exec(stmt).first()
+                
+            if not patient:
+                return f"No patient record found matching identifier: '{identifier_clean}'."
+                
+            patient_id = patient.id
+            
+            # Fetch clinical records
+            meds = session.exec(select(Medication).where(Medication.patient_id == patient_id)).all()
+            allergies = session.exec(select(Allergy).where(Allergy.patient_id == patient_id)).all()
+            docs = session.exec(select(PatientDocument).where(PatientDocument.patient_id == patient_id)).all()
+            notes = session.exec(select(ClinicalNotes).where(ClinicalNotes.patient_id == patient_id)).all()
+            op_notes = session.exec(select(OperativeNote).where(OperativeNote.patient_id == patient_id)).all()
+            pacs = session.exec(select(PACSImaging).where(PACSImaging.patient_id == patient_id)).all()
+            
+            meds_str = "\n".join([f"- {m.drug_name} ({m.dosage} - {m.frequency}) [Status: {m.status}, Updated By: {m.updated_by or 'Unknown'}]" for m in meds]) if meds else "None"
+            allergies_str = "\n".join([f"- {a.substance} (Reaction: {a.reaction}, Criticality: {a.criticality}) [Status: {a.status}, Updated By: {a.updated_by or 'Unknown'}]" for a in allergies]) if allergies else "None"
+            docs_str = "\n".join([f"- {d.title}: {d.content}" for d in docs]) if docs else "None"
+            notes_str = "\n".join([f"- {n.content} (Author: {n.author})" for n in notes]) if notes else "None"
+            op_notes_str = "\n".join([f"- {o.procedure_name}: {o.procedure_performed}. Narrative: {o.narrative_text}" for o in op_notes]) if op_notes else "None"
+            pacs_str = "\n".join([f"- Accession {p.accession_number} ({p.modality} of {p.body_site}): {p.radiologist_report}" for p in pacs]) if pacs else "None"
+            
+            summary = (
+                f"### Patient Identity\n"
+                f"ID: {patient.id}\n"
+                f"Name: {patient.name}\n"
+                f"Age: {patient.age}\n"
+                f"Gender: {patient.gender}\n"
+                f"NHS Number: {patient.nhs_number}\n\n"
+                f"### Active & Historic Medications\n{meds_str}\n\n"
+                f"### Recorded Allergies & Risks\n{allergies_str}\n\n"
+                f"### Patient Documents & Letters\n{docs_str}\n\n"
+                f"### Clinical Notes\n{notes_str}\n\n"
+                f"### Operative / Surgical Notes\n{op_notes_str}\n\n"
+                f"### PACS Imaging Reports\n{pacs_str}\n"
+            )
+            return summary
+    except Exception as e:
+        return f"Error retrieving patient record: {str(e)}"
+
 def get_mira_crew() -> Crew:
     """
     Assembles the CrewAI team for clinical research.
@@ -119,7 +190,7 @@ def get_mira_crew() -> Crew:
             "4. How did they modify the treatment (steroids, immunosuppressants, etc.) and manage complications?"
         ),
         llm=llm,
-        tools=[search_clinical_guidelines],
+        tools=[search_clinical_guidelines, get_patient_clinical_record],
         verbose=True,
         allow_delegation=False
     )

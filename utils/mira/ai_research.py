@@ -172,7 +172,7 @@ def route_intent(state: ResearchState) -> Dict[str, Any]:
         prompt = (
             "You are a clinical router. Classify the user query into either 'direct_answer' or 'deep_research'.\n"
             "Use 'direct_answer' for general Q&A, simple formatting requests, definitions, or queries that do not require clinical guidelines searching.\n"
-            "Use 'deep_research' for complex patient cases, guideline reviews (NICE, ESC, etc.), drug interaction reviews, or when multiple source integrations are required.\n\n"
+            "Use 'deep_research' for looking up specific patient records/files, complex patient cases, guideline reviews (NICE, ESC, etc.), drug interaction reviews, or when multiple source integrations are required.\n\n"
             f"Query: {state['user_query']}\n"
             f"Has attachments: {len(state.get('attachments') or []) > 0}\n\n"
             "Respond with strictly 'direct_answer' or 'deep_research' and nothing else."
@@ -388,21 +388,66 @@ def run_mira_research(
     is_transient = conversation_id.startswith("transient_")
     
     with Session(engine) as session:
-        # 1. Ensure Conversation exists (only if not transient)
-        conv = None
-        if not is_transient:
-            conv = session.get(ResearchConversation, conversation_id)
-            if not conv:
-                conv = ResearchConversation(
-                    id=conversation_id,
-                    practitioner_id=practitioner_id,
-                    title=query[:50] or "New Research Session",
-                    preview="Starting lookup...",
-                    conversation_type="chat"
-                )
-                session.add(conv)
-                session.commit()
-                session.refresh(conv)
+        # 1. Ensure Conversation exists
+        conv = session.get(ResearchConversation, conversation_id)
+        if not conv:
+            conv = ResearchConversation(
+                id=conversation_id,
+                practitioner_id=practitioner_id,
+                title=query[:50] or "New Research Session",
+                preview="Starting lookup...",
+                conversation_type="chat"
+            )
+            session.add(conv)
+            session.commit()
+            session.refresh(conv)
+
+            # Seed transient patient details context if conversation ID starts with transient_patient_
+            if conversation_id.startswith("transient_patient_"):
+                try:
+                    parts = conversation_id.split("_")
+                    patient_id = int(parts[2])
+                    from models import Patient, Medication, Allergy, PatientDocument, ClinicalNotes, OperativeNote, PACSImaging
+                    patient = session.get(Patient, patient_id)
+                    if patient:
+                        meds = session.exec(select(Medication).where(Medication.patient_id == patient_id).where(Medication.status == "Active")).all()
+                        allergies = session.exec(select(Allergy).where(Allergy.patient_id == patient_id).where(Allergy.status == "Active")).all()
+                        docs = session.exec(select(PatientDocument).where(PatientDocument.patient_id == patient_id)).all()
+                        notes = session.exec(select(ClinicalNotes).where(ClinicalNotes.patient_id == patient_id)).all()
+                        op_notes = session.exec(select(OperativeNote).where(OperativeNote.patient_id == patient_id)).all()
+                        pacs = session.exec(select(PACSImaging).where(PACSImaging.patient_id == patient_id)).all()
+
+                        meds_str = ", ".join([f"{m.drug_name} ({m.dosage} - {m.frequency})" for m in meds]) if meds else "None"
+                        allergies_str = ", ".join([f"{a.substance} (Reaction: {a.reaction})" for a in allergies]) if allergies else "None"
+                        docs_str = "\n".join([f"- {d.title}: {d.content}" for d in docs]) if docs else "None"
+                        notes_str = "\n".join([f"- {n.content} (Author: {n.author})" for n in notes]) if notes else "None"
+                        op_notes_str = "\n".join([f"- {o.procedure_name}: {o.procedure_performed}. Narrative: {o.narrative_text}" for o in op_notes]) if op_notes else "None"
+                        pacs_str = "\n".join([f"- Accession {p.accession_number} ({p.modality}): {p.radiologist_report}" for p in pacs]) if pacs else "None"
+
+                        context = (
+                            f"You are Mira, a helpful and highly accurate clinical AI assistant.\n"
+                            f"You are discussing NHS Patient: {patient.name} (Age: {patient.age}, Gender: {patient.gender}, NHS: {patient.nhs_number}) with their GP.\n"
+                            f"Here is the patient's complete file context loaded from GP-Connect:\n"
+                            f"Active Medications: {meds_str}\n"
+                            f"Active Allergies: {allergies_str}\n"
+                            f"Documents / Discharge Summaries:\n{docs_str}\n"
+                            f"Clinical Notes:\n{notes_str}\n"
+                            f"Operative Notes:\n{op_notes_str}\n"
+                            f"PACS Imaging Reports:\n{pacs_str}\n\n"
+                            f"Structure your recommendations with bold headings. Assist the doctor in reviewing or auditing this patient's records."
+                        )
+
+                        sys_msg = ResearchMessage(
+                            id=f"msg_sys_context_{datetime.utcnow().timestamp()}",
+                            conversation_id=conversation_id,
+                            role="system",
+                            content=context,
+                            attachments_json="[]"
+                        )
+                        session.add(sys_msg)
+                        session.commit()
+                except Exception as ex:
+                    print(f"[AI Researcher] Error seeding transient patient context: {ex}")
             
         # 2. Fetch Chat History
         stmt = select(ResearchMessage).where(

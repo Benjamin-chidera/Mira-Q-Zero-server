@@ -40,6 +40,10 @@ async def create_allergy(
     session.commit()
     session.refresh(allergy)
 
+    # Trigger background patient analysis
+    from utils.mira.analysis import trigger_patient_analysis
+    trigger_patient_analysis(allergy.patient_id)
+
     return {
         "message": "Allergy record created successfully",
         "allergy_id": allergy.id,
@@ -134,6 +138,10 @@ async def update_allergy_status(
 
     session.commit()
     session.refresh(allergy)
+
+    # Trigger background patient analysis
+    from utils.mira.analysis import trigger_patient_analysis
+    trigger_patient_analysis(allergy.patient_id)
 
     return {
         "message": "Allergy status updated successfully",
