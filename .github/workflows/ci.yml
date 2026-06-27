@@ -60,6 +60,8 @@ jobs:
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
+          timeout: 2m
+          command_timeout: 15m
           script: |
             # Check if directory exists, if not clone it
             if [ ! -d "/root/Mira-Q-Zero-server" ]; then
