@@ -317,6 +317,26 @@ def clean_text_for_tts(text: str) -> str:
     return text.strip()
 
 
+async def _run_with_retry(loop, func, timeout_seconds=45.0, max_retries=1, label="API call"):
+    """
+    Runs a blocking function in the executor with a timeout and automatic retry.
+    Prevents production hangs when external APIs (Mistral, NVIDIA) are slow.
+    """
+    for attempt in range(1 + max_retries):
+        try:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(None, func),
+                timeout=timeout_seconds,
+            )
+            return result
+        except asyncio.TimeoutError:
+            if attempt < max_retries:
+                print(f"[Socket.IO] {label} timed out (attempt {attempt + 1}/{max_retries + 1}), retrying...")
+                continue
+            print(f"[Socket.IO] {label} failed after {max_retries + 1} attempts (timeout={timeout_seconds}s)")
+            raise asyncio.TimeoutError(f"{label} timed out after {max_retries + 1} attempts")
+
+
 @sio.on("mira:voice_message")
 async def handle_mira_voice_message(sid, data):
     """
@@ -492,14 +512,16 @@ async def handle_mira_voice_message(sid, data):
                     "content": msg.content
                 })
                 
-        # Call Mistral Chat
-        chat_response = await loop.run_in_executor(
-            None,
+        # Call Mistral Chat (with timeout + retry to prevent production hangs)
+        chat_response = await _run_with_retry(
+            loop,
             lambda: client.chat.complete(
                 model=CHAT_MODEL,
                 messages=messages_payload,
                 temperature=0.4
-            )
+            ),
+            timeout_seconds=45.0,
+            label="Mistral Chat"
         )
         
         agent_text = chat_response.choices[0].message.content.strip()
@@ -535,14 +557,16 @@ async def handle_mira_voice_message(sid, data):
         # Clean text for spoken audio to prevent spelling out raw URLs
         cleaned_spoken_text = clean_text_for_tts(agent_text)
         
-        tts_response = await loop.run_in_executor(
-            None,
+        tts_response = await _run_with_retry(
+            loop,
             lambda: client.audio.speech.complete(
                 model=TTS_MODEL,
                 input=cleaned_spoken_text if cleaned_spoken_text else agent_text,
                 voice_id=voice_id,
                 response_format="mp3"
-            )
+            ),
+            timeout_seconds=30.0,
+            label="Mistral TTS"
         )
         
         audio_b64_out = ""

@@ -166,7 +166,8 @@ def route_intent(state: ResearchState) -> Dict[str, Any]:
         llm = ChatNVIDIA(
             model="meta/llama-3.3-70b-instruct",
             nvidia_api_key=os.getenv("NVIDIA_API_KEY"),
-            temperature=0
+            temperature=0,
+            timeout=60
         )
         
         prompt = (
@@ -237,7 +238,8 @@ def direct_answer(state: ResearchState) -> Dict[str, Any]:
     llm = ChatNVIDIA(
         model="meta/llama-3.3-70b-instruct",
         nvidia_api_key=os.getenv("NVIDIA_API_KEY"),
-        temperature=0.3
+        temperature=0.3,
+        timeout=60
     )
     
     # Format chat history

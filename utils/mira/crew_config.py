@@ -114,7 +114,8 @@ def get_mira_crew() -> Crew:
     llm = LLM(
         model="nvidia_nim/meta/llama-3.3-70b-instruct",
         api_key=os.getenv("NVIDIA_NIM_API_KEY"),
-        temperature=0.2
+        temperature=0.2,
+        timeout=120
     )
 
     # 1. Clinical Intake Agent (The Context Parser)
