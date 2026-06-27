@@ -679,3 +679,75 @@ async def handle_call_send_docs(sid, data):
         return {"error": f"Failed to send docs: {str(e)}"}
 
 
+
+@sio.on("mira:ask_patient_question")
+async def handle_ask_patient_question(sid, data):
+    """
+    Handles real-time Ask Mira queries from the patient summary drawer.
+    Accepts: data = {"patient_id": 123, "question": "..."}
+    """
+    try:
+        from utils.mira.analysis import get_patient_profile_context, llm
+        from sqlmodel import Session
+        from database import engine
+        
+        patient_id = data.get("patient_id")
+        question = data.get("question")
+        
+        if not patient_id or not question:
+            return {"error": "Missing 'patient_id' or 'question'"}
+            
+        print(f"[Socket.IO] Ask Mira request from {sid} for patient {patient_id}")
+        
+        loop = asyncio.get_event_loop()
+        
+        def run_llm():
+            with Session(engine) as session:
+                ctx = get_patient_profile_context(patient_id, session)
+                patient = ctx.get("patient")
+                if not patient:
+                    raise Exception("Patient not found")
+                    
+                profile_text = ctx.get("profile_text", "")
+                if not llm:
+                    raise Exception("AI service is currently offline.")
+
+                prompt = f"""
+You are Mira, a clinical AI assistant. You are answering a question from a practitioner about this patient.
+Answer the question accurately, professionally, and concisely using the provided patient clinical profile.
+If the profile does not contain the answer, state that it is not in the patient's records.
+
+[PATIENT CLINICAL PROFILE]
+{profile_text}
+
+Practitioner Question: {question}
+
+Provide your answer in clear, markdown-friendly text. Keep it clinical and brief.
+"""
+                response = llm.invoke(prompt)
+                return response.content.strip()
+
+        # Run blocking LLM call in a thread with a 45-second timeout
+        answer = await _run_with_retry(
+            loop, 
+            run_llm, 
+            timeout_seconds=45.0, 
+            max_retries=1, 
+            label="Patient Ask Mira LLM"
+        )
+        
+        await sio.emit("mira:ask_patient_question_response", {
+            "patient_id": patient_id,
+            "answer": answer
+        }, to=sid)
+        
+        return {"success": True}
+
+    except Exception as e:
+        print(f"[Socket.IO] Mira Ask Patient Error: {e}")
+        await sio.emit("mira:ask_patient_question_error", {
+            "patient_id": data.get("patient_id"),
+            "error": str(e)
+        }, to=sid)
+        return {"error": str(e)}
+
