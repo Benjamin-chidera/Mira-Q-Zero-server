@@ -129,6 +129,13 @@ app = FastAPI(lifespan=lifespan)
 @app.get("/")
 def root():
     return {"message": "Welcome to GP Connect"}
+
+
+@app.get("/health")
+def health_check():
+    # Dokploy uses this endpoint to verify the container is healthy.
+    # A 200 response keeps the deployment; a failure triggers a rollback.
+    return {"status": "ok"}
  
 allowed_origins = [
     o.strip()

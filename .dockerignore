@@ -1,5 +1,24 @@
 .venv
 __pycache__
 *.pyc
+*.pyo
 .git
 .env
+
+# SQLite dev database files — production uses MySQL
+*.db
+*.db-shm
+*.db-wal
+
+# Patient uploaded documents (large, not part of the image)
+patient_docs/
+
+# Test suite — not needed inside the production image
+tests/
+.pytest_cache/
+
+# Knowledge graph output
+graphify-out/
+
+# macOS metadata
+.DS_Store
