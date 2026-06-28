@@ -24,8 +24,11 @@ COPY . .
 # Place the virtual environment on the PATH so python and installed tools (uvicorn, celery) run from it
 ENV PATH="/app/.venv/bin:$PATH"
 
+# Ensure the startup script is executable
+RUN chmod +x start.sh
+
 # Expose FastAPI's standard port
 EXPOSE 8000
 
-# Command to run FastAPI server
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Start both Celery worker and FastAPI server
+CMD ["./start.sh"]
