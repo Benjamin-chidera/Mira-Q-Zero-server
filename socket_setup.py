@@ -486,22 +486,47 @@ async def handle_mira_voice_message(sid, data):
             "status": "Mira is thinking..."
         }, to=sid)
 
+        # Try to run a quick Tavily search to fetch context if the query is a general knowledge question
+        search_context = ""
+        try:
+            from langchain_community.tools import TavilySearchResults
+            tavily_tool = TavilySearchResults(max_results=3)
+            if tavily_tool and len(user_text.strip()) > 5:
+                print(f"[Socket.IO Call] Running Tavily search for: '{user_text}'")
+                search_results = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda: tavily_tool.invoke(user_text)
+                    ),
+                    timeout=5.0
+                )
+                search_context = f"\n=== Web Search Results (Current Year: {datetime.now().year}) ===\n{str(search_results)}\n"
+                print(f"[Socket.IO Call] Tavily returned results: {str(search_results)[:200]}")
+        except Exception as search_err:
+            print(f"[Socket.IO Call] Tavily search skipped/failed: {search_err}")
+
         with Session(engine) as session:
             stmt = select(ResearchMessage).where(
                 ResearchMessage.conversation_id == conversation_id
             ).order_by(ResearchMessage.created_at)
             db_messages = session.exec(stmt).all()
             
+            system_prompt_content = (
+                "You are Mira, a friendly and highly professional real-time voice-based clinical research assistant on a call with a practitioner.\n"
+                f"Today's date is {datetime.now().strftime('%d %b %Y')}. The current year is {datetime.now().year}.\n"
+                "Give concise, conversational, and direct answers that are easy to understand when spoken aloud. "
+                "Keep your response short (1 to 3 sentences maximum, 50 words max).\n"
+                "The practitioner CAN see the text transcript on their screen, so you are encouraged to include helpful references and reference hyperlinks in standard markdown format (e.g. [CDC COVID treatments](https://www.cdc.gov/coronavirus/2019-ncov/index.html)) or naked URLs when citing sources. They will render as clickable links.\n"
+                "Avoid raw markdown symbols other than links and bold text (do not use headers, bullet lists, or tables)."
+            )
+            
+            if search_context:
+                system_prompt_content += f"\n\nHere is real-time search context to answer the user's question:\n{search_context}\n"
+
             messages_payload = [
                 {
                     "role": "system",
-                    "content": (
-                        "You are Mira, a friendly and highly professional real-time voice-based clinical research assistant on a call with a practitioner.\n"
-                        "Give concise, conversational, and direct answers that are easy to understand when spoken aloud. "
-                        "Keep your response short (1 to 3 sentences maximum, 50 words max).\n"
-                        "The practitioner CAN see the text transcript on their screen, so you are encouraged to include helpful references and reference hyperlinks in standard markdown format (e.g. [CDC COVID treatments](https://www.cdc.gov/coronavirus/2019-ncov/index.html)) or naked URLs when citing sources. They will render as clickable links.\n"
-                        "Avoid raw markdown symbols other than links and bold text (do not use headers, bullet lists, or tables)."
-                    )
+                    "content": system_prompt_content
                 }
             ]
             

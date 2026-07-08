@@ -166,8 +166,7 @@ def route_intent(state: ResearchState) -> Dict[str, Any]:
         llm = ChatNVIDIA(
             model="meta/llama-3.3-70b-instruct",
             nvidia_api_key=os.getenv("NVIDIA_API_KEY"),
-            temperature=0,
-            timeout=60
+            temperature=0
         )
         
         prompt = (
@@ -218,8 +217,11 @@ def direct_answer(state: ResearchState) -> Dict[str, Any]:
     
     search_context = ""
     search_sources = []
+    tavily_failed = False
     try:
+        print(f"[AI Researcher] Tavily search starting for query: '{state['user_query'][:60]}'")
         search_results = tavily.invoke(state["user_query"])
+        print(f"[AI Researcher] Tavily returned {len(search_results) if isinstance(search_results, list) else 'non-list'} results")
         search_context = f"\n=== Web Search Results ===\n{str(search_results)}\n"
         
         # Parse search results to collect verified sources
@@ -233,26 +235,38 @@ def direct_answer(state: ResearchState) -> Dict[str, Any]:
                         "type": "url"
                     })
     except Exception as e:
-        print(f"[AI Researcher] Quick Q&A search error: {e}")
+        tavily_failed = True
+        print(f"[AI Researcher] ⚠️ Tavily web search FAILED: {type(e).__name__}: {e}")
 
     llm = ChatNVIDIA(
         model="meta/llama-3.3-70b-instruct",
         nvidia_api_key=os.getenv("NVIDIA_API_KEY"),
-        temperature=0.3,
-        timeout=60
+        temperature=0.3
     )
     
     # Format chat history
     history_str = ""
     for msg in state.get("chat_history") or []:
         history_str += f"{msg['role'].capitalize()}: {msg['content']}\n"
-        
+    
+    # Build a search status disclaimer so the LLM knows when it has no live data
+    search_disclaimer = ""
+    if tavily_failed or not search_context.strip():
+        search_disclaimer = (
+            "\n⚠️ IMPORTANT: The web search failed or returned no results. "
+            "You do NOT have access to live/current information for this query. "
+            "If the user is asking about current events, the current date, or recent news, "
+            "you MUST clearly state that your web search was unavailable and you cannot confirm "
+            "real-time information. Do NOT guess or use your training data as if it were current facts.\n"
+        )
+
     prompt = (
         "You are Mira, a helpful and highly accurate clinical AI assistant.\n"
         "Provide a direct, medically sound response based on the patient case, query, history, and provided search context.\n\n"
         f"Chat History:\n{history_str}\n"
         f"Extracted Context from files/URLs:\n{state['extracted_context']}\n\n"
         f"Web Search Context:\n{search_context}\n\n"
+        f"{search_disclaimer}"
         f"User Query: {state['user_query']}\n\n"
         "Provide your recommendation structured with bold headings. "
         "You MUST base your response on the provided 'Web Search Context' and 'Extracted Context' (files/images/URLs) rather than relying on your own memory or trained weights. "
