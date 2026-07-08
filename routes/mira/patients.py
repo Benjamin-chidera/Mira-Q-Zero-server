@@ -57,8 +57,8 @@ async def get_practice_patients(
             "age": p.age,
             "gender": p.gender,
             "dateOfBirth": p.date_of_birth,
-            "status": "Review",
-            "reason": patient_bookings[0].symptoms if patient_bookings else "Not set yet",
+            "status": p.status,
+            "reason": p.outcome_reason if p.status != "Review" else (patient_bookings[0].symptoms if patient_bookings else "Not set yet"),
             "doctorName": doctor_name
         })
         seen_nhs_numbers.add(p.nhs_number)
@@ -112,6 +112,44 @@ async def update_patient_details(
             "age": patient.age,
             "gender": patient.gender,
             "dateOfBirth": patient.date_of_birth,
+        }
+    }
+
+
+@router.patch("/{patient_id}/outcome")
+async def update_patient_outcome(
+    patient_id: int,
+    data: dict,
+    session: Session = Depends(get_session),
+):
+    """
+    Update patient outcome status and reason.
+    """
+    patient = session.exec(select(Patient).where(Patient.id == patient_id)).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    if "status" in data:
+        patient.status = data["status"]
+    if "outcome_reason" in data:
+        patient.outcome_reason = data["outcome_reason"]
+
+    session.commit()
+    session.refresh(patient)
+
+    # Invalidate cache
+    try:
+        from utils.mira.analysis import invalidate_patient_summary
+        invalidate_patient_summary(patient_id)
+    except Exception as e:
+        print(f"[Summary Cache] Invalidation failed: {e}")
+
+    return {
+        "message": "Patient outcome updated successfully",
+        "patient": {
+            "id": patient.id,
+            "status": patient.status,
+            "outcome_reason": patient.outcome_reason,
         }
     }
 

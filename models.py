@@ -22,6 +22,8 @@ class Patient(SQLModel, table=True):
     date_of_birth: Optional[str] = Field(default=None)
     age: int = Field(default=None)
     doctor_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    status: str = Field(default="Review")
+    outcome_reason: Optional[str] = Field(default=None, sa_column=Column(TEXT, nullable=True))
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class GPSlot(SQLModel, table=True):
